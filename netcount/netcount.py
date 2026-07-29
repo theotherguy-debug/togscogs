@@ -121,7 +121,10 @@ class NetCount(commands.Cog):
             survivor_exile_hours=168,
             survivor_min_counts_req=100,
             survivor_license_fee=5000,
-            containment_role_id=None
+            containment_role_id=None,
+            multiplier_enabled=True,
+            base_reward=10,
+            autoroles={} # dict of str(count_threshold) -> role_id
         )
         
         self.config.register_member(
@@ -131,7 +134,9 @@ class NetCount(commands.Cog):
             survivor_exile_end=None,
             has_survivor_license=False,
             survivor_contributions=0,
-            last_counted_streak_id=None
+            last_counted_streak_id=None,
+            total_valid_counts=0,
+            times_ruined=0
         )
         
         self.active_duels = {}
@@ -284,6 +289,37 @@ class NetCount(commands.Cog):
             if expected_number % 100 == 0:
                 await self.safe_react(message, "<a:text_gif_oof61:1515093296710422640>", "💯")
 
+            # Update stats: total valid counts
+            valid_counts = await self.config.member(author).total_valid_counts()
+            new_valid_counts = valid_counts + 1
+            await self.config.member(author).total_valid_counts.set(new_valid_counts)
+
+            # Check Milestone Auto-Roles
+            guild_autoroles = await self.config.guild(guild).autoroles()
+            if str(new_valid_counts) in guild_autoroles:
+                role_id = guild_autoroles[str(new_valid_counts)]
+                role = guild.get_role(role_id)
+                if role:
+                    try:
+                        await author.add_roles(role, reason=f"Reached {new_valid_counts} total counts milestone!")
+                        await channel.send(
+                            f"🏆 **MILESTONE REWARD!** {author.mention} reached **{new_valid_counts}** total counts and unlocked the {role.mention} role!"
+                        )
+                    except discord.Forbidden:
+                        pass
+
+            # Streak Multiplier / Economy Reward
+            multiplier_enabled = await self.config.guild(guild).multiplier_enabled()
+            if multiplier_enabled:
+                base = await self.config.guild(guild).base_reward()
+                # Multiplier increases with streak depth (1x at 1-99, 2x at 100-199, etc.)
+                multiplier = max(1, expected_number // 100 + 1)
+                reward = int(base * multiplier)
+                try:
+                    await bank.deposit_credits(author, reward)
+                except Exception:
+                    pass
+
             # If Survivor channel, track contributions
             if is_survivor:
                 streak_id = ch_data.get("streak_id")
@@ -331,7 +367,27 @@ class NetCount(commands.Cog):
         author = message.author
         value = str(value).strip()
         
-        # 1. URL Path -> Embed with image
+        # 1. Local File Path in milestone directory or direct path
+        import os
+        local_dir = os.path.join(os.path.dirname(__file__), "milestones")
+        possible_local = os.path.join(local_dir, value)
+        file_to_send = possible_local if os.path.exists(possible_local) else (value if os.path.exists(value) else None)
+
+        if file_to_send and os.path.isfile(file_to_send):
+            try:
+                d_file = discord.File(file_to_send)
+                embed = discord.Embed(
+                    title=f"🎉 **MILESTONE REACHED: {number}!** 🎉",
+                    description=f"Awesome job, {author.mention}!",
+                    color=0x9B59B6
+                )
+                embed.set_image(url=f"attachment://{os.path.basename(file_to_send)}")
+                await message.reply(embed=embed, file=d_file)
+                return
+            except discord.HTTPException:
+                pass
+
+        # 2. URL Path -> Embed with image
         if value.startswith(("http://", "https://")):
             try:
                 embed = discord.Embed(
@@ -344,7 +400,7 @@ class NetCount(commands.Cog):
             except discord.HTTPException:
                 pass
         
-        # 2. Sticker ID
+        # 3. Sticker ID
         elif value.isdigit():
             sticker_id = int(value)
             if sticker_id != 0:
@@ -388,6 +444,10 @@ class NetCount(commands.Cog):
         streak = ch_data.get("current_count", 0)
         ch_data["current_count"] = 0
         ch_data["last_counter_id"] = None
+        
+        # Track ruined count statistic
+        ruined = await self.config.member(message.author).times_ruined()
+        await self.config.member(message.author).times_ruined.set(ruined + 1)
         
         if is_survivor:
             # Generate new streak_id to invalidate past contributions
@@ -629,8 +689,90 @@ class NetCount(commands.Cog):
         """Configure the multi-channel sequence game."""
         pass
 
-    @counting.command(name="addchannel", aliases=["addc", "enable"])
-    async def addchannel(self, ctx: commands.Context, channel: discord.TextChannel):
+    @commands.hybrid_command(name="counttop", aliases=["countingtop", "ctop"])
+    @commands.guild_only()
+    async def counttop(self, ctx: commands.Context):
+        """View the server counting leaderboard (Total Counts, Highest Single, Ruined Streak, Accuracy)."""
+        guild = ctx.guild
+        member_data = await self.config.all_members(guild)
+        
+        if not member_data:
+            return await ctx.send("No counting statistics recorded yet!")
+            
+        leaderboard = []
+        for m_id, data in member_data.items():
+            try:
+                m_id_int = int(m_id)
+            except ValueError:
+                continue
+            member = guild.get_member(m_id_int)
+            name = member.display_name if member else f"User ({m_id})"
+            
+            valid = data.get("total_valid_counts", 0)
+            highest = data.get("highest_progression", 0)
+            ruined = data.get("times_ruined", 0)
+            
+            total_attempts = valid + ruined
+            accuracy = (valid / total_attempts * 100) if total_attempts > 0 else 0.0
+            
+            if valid > 0 or highest > 0 or ruined > 0:
+                leaderboard.append((name, valid, highest, ruined, accuracy))
+                
+        if not leaderboard:
+            return await ctx.send("No counting activity logged yet.")
+            
+        # Sort by total valid counts descending
+        leaderboard.sort(key=lambda x: x[1], reverse=True)
+        
+        embed = discord.Embed(
+            title="📊 **NETCOUNT SERVER LEADERBOARD** 📊",
+            color=discord.Color.blue()
+        )
+        
+        desc = ""
+        for rank, (name, valid, highest, ruined, accuracy) in enumerate(leaderboard[:10], 1):
+            desc += (
+                f"**#{rank} {name}**\n"
+                f"├ Total Counts: `{valid}` | Highest Single: `{highest}`\n"
+                f"└ Times Ruined: `{ruined}` | Accuracy: `{accuracy:.1f}%`\n\n"
+            )
+            
+        embed.description = desc
+        await ctx.send(embed=embed)
+
+    @counting.command(name="setmultiplier")
+    async def setmultiplier(self, ctx: commands.Context, enabled: bool):
+        """Enable or disable streak reward multipliers."""
+        await self.config.guild(ctx.guild).multiplier_enabled.set(enabled)
+        status = "ENABLED" if enabled else "DISABLED"
+        await ctx.send(f"✅ Streak credit multiplier is now **{status}**.")
+
+    @counting.command(name="setbasereward")
+    async def setbasereward(self, ctx: commands.Context, amount: int):
+        """Set base credit reward per valid count."""
+        if amount < 0:
+            return await ctx.send("Reward cannot be negative.")
+        await self.config.guild(ctx.guild).base_reward.set(amount)
+        await ctx.send(f"✅ Base credit reward per count set to **{amount}**.")
+
+    @counting.command(name="addautorole")
+    async def addautorole(self, ctx: commands.Context, total_counts: int, role: discord.Role):
+        """Assign an auto-role unlocked when reaching a total count threshold."""
+        if total_counts < 1:
+            return await ctx.send("Count threshold must be at least 1.")
+        async with self.config.guild(ctx.guild).autoroles() as autoroles:
+            autoroles[str(total_counts)] = role.id
+        await ctx.send(f"🏆 Milestone role {role.mention} set for reaching **{total_counts}** total valid counts!")
+
+    @counting.command(name="removeautorole")
+    async def removeautorole(self, ctx: commands.Context, total_counts: int):
+        """Remove a milestone auto-role threshold."""
+        async with self.config.guild(ctx.guild).autoroles() as autoroles:
+            if str(total_counts) in autoroles:
+                del autoroles[str(total_counts)]
+                await ctx.send(f"🗑️ Removed auto-role milestone for **{total_counts}** counts.")
+            else:
+                await ctx.send("No auto-role configured for that threshold.")
         """Enable sequence game on a channel."""
         async with self.config.guild(ctx.guild).channels() as channels:
             ch_str = str(channel.id)
@@ -748,6 +890,47 @@ class NetCount(commands.Cog):
             channels[ch_str]["last_counter_id"] = None
             
         await ctx.send(f"🛠️ [SYS_OVERRIDE] BUFFER_REALIGNED in {target_channel.mention} to count **{count}**. Listening for **{count + 1}**.")
+
+    @counting.command(name="resetloss", aliases=["clearpenalties", "clearshame", "resetpenalties"])
+    async def resetloss(self, ctx: commands.Context, member: Optional[discord.Member] = None):
+        """Reset loss data / shame penalties so members stay in positive standing."""
+        guild = ctx.guild
+        if member:
+            await self.config.member(member).penalty_end_time.clear()
+            await self.config.member(member).original_nickname.clear()
+            await self.config.member(member).survivor_exile_end.clear()
+            try:
+                orig_name = await self.config.member(member).original_nickname() or member.display_name
+                await member.edit(nick=orig_name, reason="Loss data reset by admin.")
+            except discord.Forbidden:
+                pass
+            await ctx.send(f"✅ Loss data and shame penalties cleared for {member.mention}.")
+        else:
+            member_data = await self.config.all_members(guild)
+            for m_id in member_data.keys():
+                try:
+                    m_id_int = int(m_id)
+                    await self.config.member_from_ids(guild.id, m_id_int).penalty_end_time.clear()
+                    await self.config.member_from_ids(guild.id, m_id_int).original_nickname.clear()
+                    await self.config.member_from_ids(guild.id, m_id_int).survivor_exile_end.clear()
+                except Exception:
+                    pass
+            await ctx.send("✅ [SYS] All server loss data and shame penalties purged. Everyone is in positive standing!")
+
+    @counting.command(name="reseteco", aliases=["cleareco", "reseteconomy"])
+    async def reseteco(self, ctx: commands.Context):
+        """Clear netcount economy data (jackpot vault and survivor license records)."""
+        guild = ctx.guild
+        await self.config.guild(guild).jackpot_vault.set(0)
+        member_data = await self.config.all_members(guild)
+        for m_id in member_data.keys():
+            try:
+                m_id_int = int(m_id)
+                await self.config.member_from_ids(guild.id, m_id_int).has_survivor_license.set(False)
+                await self.config.member_from_ids(guild.id, m_id_int).survivor_contributions.set(0)
+            except Exception:
+                pass
+        await ctx.send("💰 [SYS] Netcount economy cleared! Jackpot vault reset to 0 and all licenses wiped.")
 
     @counting.command(name="prestigetarget", aliases=["ptarget", "pt"])
     async def prestigetarget(self, ctx: commands.Context, target: int, channel: Optional[discord.TextChannel] = None):
@@ -1637,14 +1820,17 @@ class NetCount(commands.Cog):
                     if not words:
                         continue
                         
+                    # Check if the first word is a number/math expression
                     parsed = evaluate_math(words[0])
                     if parsed is None:
+                        # Non-number message (chatting in channel), completely ignore
                         continue
-                        
+
+                    # Ignore numbers that are at or below current count (already processed before offline)
                     if parsed <= updated_count:
-                        # Old message, skip
                         continue
-                    elif parsed == updated_count + 1:
+
+                    if parsed == updated_count + 1:
                         # Next expected number!
                         if msg.author.id == updated_last_counter:
                             # Double count mistake
@@ -1682,7 +1868,8 @@ class NetCount(commands.Cog):
                                 if msg.author.id not in contributors:
                                     contributors.append(msg.author.id)
                     else:
-                        # Number skipped/wrong
+                        # Number skipped or wrong!
+                        # Only trigger failure if the message was actually sent AFTER the current count was recorded
                         failed = True
                         fail_msg = msg
                         display_count = int(parsed) if parsed.is_integer() else parsed
