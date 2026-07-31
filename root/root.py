@@ -867,7 +867,7 @@ class WellbeingSubsystemView(ui.View):
             f" Selected Channel ID: {self.selected_channel_id or 'None'}\n"
             f"```"
         )
-        return discord.Embed(title="Subsystem: Wellbeing Reminders", description=desc, color=discord.Color.cyan())
+        return discord.Embed(title="Subsystem: Wellbeing Reminders", description=desc, color=discord.Color.teal())
 
     @ui.button(label="Add Alert Channel", style=discord.ButtonStyle.primary, row=1)
     async def add_channel(self, interaction: discord.Interaction, button: ui.Button):
