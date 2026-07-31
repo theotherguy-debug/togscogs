@@ -1,0 +1,11 @@
+{
+    "author": ["Th3OTh3rGuy"],
+    "description": "Server-wide XP and leveling system with cybersecurity/cyberpunk themes, integrated with counting and duels.",
+    "short": "Cyberpunk Ranking and Leveling System",
+    "tags": ["leveling", "rank", "xp", "cyberpunk", "economy"],
+    "name": "netrank",
+    "requirements": [],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false
+}

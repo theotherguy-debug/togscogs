@@ -286,6 +286,7 @@ class NetCount(commands.Cog):
 
             # Success Path
             await self.safe_react(message, "<:approved:1525751752987508737>", "✅")
+            self.bot.dispatch("netcount_valid_count", message, expected_number)
             if expected_number % 100 == 0:
                 await self.safe_react(message, "<a:text_gif_oof61:1515093296710422640>", "💯")
 
@@ -1366,6 +1367,7 @@ class NetCount(commands.Cog):
             except Exception:
                 pass
                 
+        self.bot.dispatch("netcount_duel_complete", guild, winner, loser, wager, current_count)
         parent_channel = thread.parent if thread else None
         if parent_channel:
             try:
@@ -1606,6 +1608,7 @@ class NetCount(commands.Cog):
                     color=discord.Color.gold()
                 )
                 await message.channel.send(embed=embed)
+                self.bot.dispatch("netcount_survivor_milestone", guild, number, contrib_map)
 
     # --- USER SURVIVOR LICENSE COMMAND ---
     @commands.hybrid_command(name="buysurvivorlicense", aliases=["buysurv"])

@@ -100,6 +100,14 @@ class MainframeMainView(ui.View):
         view = WellbeingSubsystemView(self.bot, self.author, cog, self, interaction.guild)
         await interaction.response.edit_message(embed=view.get_embed(), view=view)
 
+    @ui.button(label="Ranking System", style=discord.ButtonStyle.secondary, emoji="⚡", row=1)
+    async def ranking_btn(self, interaction: discord.Interaction, button: ui.Button):
+        cog = self.bot.get_cog("NetRank")
+        if not cog:
+            return await interaction.response.send_message("❌ Subsystem offline. NetRank cog is not loaded.", ephemeral=True)
+        view = RankingSubsystemView(self.bot, self.author, cog, self, interaction.guild)
+        await interaction.response.edit_message(embed=view.get_embed(), view=view)
+
     @ui.button(label="Economy & Bank", style=discord.ButtonStyle.success, emoji="💰", row=2)
     async def economy_btn(self, interaction: discord.Interaction, button: ui.Button):
         view = EconomySubsystemView(self.bot, self.author, self)
@@ -859,7 +867,7 @@ class WellbeingSubsystemView(ui.View):
             f" Selected Channel ID: {self.selected_channel_id or 'None'}\n"
             f"```"
         )
-        return discord.Embed(title="Subsystem: Wellbeing Reminders", description=desc, color=discord.Color.teal())
+        return discord.Embed(title="Subsystem: Wellbeing Reminders", description=desc, color=discord.Color.cyan())
 
     @ui.button(label="Add Alert Channel", style=discord.ButtonStyle.primary, row=1)
     async def add_channel(self, interaction: discord.Interaction, button: ui.Button):
@@ -1135,3 +1143,233 @@ class BroadcastDMModal(ui.Modal, title="Broadcast Direct Message"):
             await admin.send(summary)
         except Exception:
             pass
+
+
+# =====================================================================
+#                      RANKING SUBSYSTEM VIEW & MODALS
+# =====================================================================
+class RankingSubsystemView(ui.View):
+    def __init__(self, bot, author, cog, parent_view, guild):
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.author = author
+        self.cog = cog
+        self.parent_view = parent_view
+        self.selected_channel_id = None
+        
+        menu = RankingChannelSelectMenu(self)
+        menu._populate_channels(guild)
+        self.add_item(menu)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author.id:
+            await interaction.response.send_message("❌ Unauthorized.", ephemeral=True)
+            return False
+        return True
+
+    def get_embed(self) -> discord.Embed:
+        desc = (
+            f"```ansi\n"
+            f"{CYAN}╔══════════════════════════════════════════════════════╗{RESET}\n"
+            f"{CYAN}║            ⚡ MAINFRAME RANKING & XP COG              ║{RESET}\n"
+            f"{CYAN}╚══════════════════════════════════════════════════════╝{RESET}\n\n"
+            f" Configure XP multipliers, sources, auto-roles, and channels.\n"
+            f" Selected Channel ID: {self.selected_channel_id or 'None'}\n"
+            f"```"
+        )
+        return discord.Embed(title="Subsystem: Mainframe Ranking", description=desc, color=discord.Color.blue())
+
+    @ui.button(label="Toggle System", style=discord.ButtonStyle.primary, row=1)
+    async def toggle_system(self, interaction: discord.Interaction, button: ui.Button):
+        current = await self.cog.config.guild(interaction.guild).rank_enabled()
+        await self.cog.config.guild(interaction.guild).rank_enabled.set(not current)
+        status = "ENABLED" if not current else "DISABLED"
+        await interaction.response.send_message(f"✅ Ranking system is now **{status}**.", ephemeral=True)
+
+    @ui.button(label="Set Level Channel", style=discord.ButtonStyle.primary, row=1)
+    async def set_lvl_channel(self, interaction: discord.Interaction, button: ui.Button):
+        if not self.selected_channel_id:
+            return await interaction.response.send_message("❌ Please select a channel first.", ephemeral=True)
+        cid = int(self.selected_channel_id)
+        await self.cog.config.guild(interaction.guild).level_up_channel_id.set(cid)
+        await interaction.response.send_message(f"✅ Level-up broadcast channel set to <#{cid}>.", ephemeral=True)
+
+    @ui.button(label="Clear Level Channel", style=discord.ButtonStyle.secondary, row=1)
+    async def clear_lvl_channel(self, interaction: discord.Interaction, button: ui.Button):
+        await self.cog.config.guild(interaction.guild).level_up_channel_id.set(None)
+        await interaction.response.send_message("✅ Level-up broadcast channel cleared.", ephemeral=True)
+
+    @ui.button(label="Configure XP / Sources", style=discord.ButtonStyle.secondary, row=1)
+    async def config_xp(self, interaction: discord.Interaction, button: ui.Button):
+        modal = RankingConfigureXPModal(self.cog, interaction.guild)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Add Level Role", style=discord.ButtonStyle.success, row=2)
+    async def add_lvl_role(self, interaction: discord.Interaction, button: ui.Button):
+        modal = RankingAddRoleModal(self.cog, interaction.guild)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Remove Level Role", style=discord.ButtonStyle.danger, row=2)
+    async def remove_lvl_role(self, interaction: discord.Interaction, button: ui.Button):
+        modal = RankingRemoveRoleModal(self.cog, interaction.guild)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Operative Control", style=discord.ButtonStyle.secondary, row=2)
+    async def op_control(self, interaction: discord.Interaction, button: ui.Button):
+        modal = RankingOperativeControlModal(self.cog, interaction.guild)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Main Menu", style=discord.ButtonStyle.danger, emoji="⬅️", row=2)
+    async def back(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.edit_message(embed=self.parent_view.get_main_embed(), view=self.parent_view)
+
+
+class RankingChannelSelectMenu(ui.Select):
+    def __init__(self, parent_view):
+        self.parent_view = parent_view
+        super().__init__(placeholder="Select channel...", min_values=1, max_values=1, row=0)
+
+    async def callback(self, interaction: discord.Interaction):
+        self.parent_view.selected_channel_id = self.values[0]
+        await interaction.response.edit_message(embed=self.parent_view.get_embed(), view=self.parent_view)
+
+    def _populate_channels(self, guild: discord.Guild):
+        self.options = []
+        for ch in guild.text_channels[:25]:
+            self.options.append(discord.SelectOption(label=ch.name, value=str(ch.id)))
+
+
+class RankingConfigureXPModal(ui.Modal, title="Configure XP Sources & Amounts"):
+    xp_count = ui.TextInput(label="Base XP per Count", default="10", placeholder="Integer")
+    xp_duel = ui.TextInput(label="XP per Duel Win (No wager)", default="250", placeholder="Integer")
+    xp_surv = ui.TextInput(label="XP per Survivor Milestone", default="500", placeholder="Integer")
+    xp_msg = ui.TextInput(label="XP per Msg / Msg Cooldown (sec)", default="5, 60", placeholder="Comma separated, e.g. 5, 60")
+    sources = ui.TextInput(label="Enable Sources (counts, duels, surv, msg)", default="yes, yes, yes, no", placeholder="Yes/No comma separated")
+
+    def __init__(self, cog, guild):
+        super().__init__()
+        self.cog = cog
+        self.guild = guild
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            xc = int(str(self.xp_count).strip())
+            xd = int(str(self.xp_duel).strip())
+            xs = int(str(self.xp_surv).strip())
+            
+            xm_parts = [p.strip() for p in str(self.xp_msg).split(",")]
+            xm = int(xm_parts[0])
+            xm_cd = int(xm_parts[1]) if len(xm_parts) > 1 else 60
+
+            src_parts = [p.strip().lower() in ["yes", "true", "y", "1"] for p in str(self.sources).split(",")]
+            counts_on = src_parts[0] if len(src_parts) > 0 else True
+            duels_on = src_parts[1] if len(src_parts) > 1 else True
+            surv_on = src_parts[2] if len(src_parts) > 2 else True
+            msg_on = src_parts[3] if len(src_parts) > 3 else False
+
+            await self.cog.config.guild(self.guild).xp_per_count.set(xc)
+            await self.cog.config.guild(self.guild).xp_per_duel_win.set(xd)
+            await self.cog.config.guild(self.guild).xp_per_survivor_milestone.set(xs)
+            await self.cog.config.guild(self.guild).xp_per_message.set(xm)
+            await self.cog.config.guild(self.guild).message_xp_cooldown.set(xm_cd)
+
+            sources_dict = {
+                "counts": counts_on,
+                "duels": duels_on,
+                "survivor": surv_on,
+                "messages": msg_on
+            }
+            await self.cog.config.guild(self.guild).xp_sources.set(sources_dict)
+
+            await interaction.response.send_message("✅ Ranking parameters and sources updated successfully.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Failed: Invalid input format. Details: {e}", ephemeral=True)
+
+
+class RankingAddRoleModal(ui.Modal, title="Add Level Role Reward"):
+    lvl = ui.TextInput(label="Target Level", default="10", placeholder="Level integer")
+    role_info = ui.TextInput(label="Role Name or ID", placeholder="Name of role or snowflake ID")
+
+    def __init__(self, cog, guild):
+        super().__init__()
+        self.cog = cog
+        self.guild = guild
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            level = int(str(self.lvl).strip())
+            role_str = str(self.role_info).strip()
+            role = None
+            if role_str.isdigit():
+                role = self.guild.get_role(int(role_str))
+            else:
+                role = discord.utils.find(lambda r: r.name.lower() == role_str.lower(), self.guild.roles)
+
+            if not role:
+                return await interaction.response.send_message("❌ Role not found in server database.", ephemeral=True)
+
+            async with self.cog.config.guild(self.guild).level_roles() as roles:
+                roles[str(level)] = role.id
+
+            await interaction.response.send_message(f"🏆 Role Reward set: Level **{level}** unlocks {role.mention}.", ephemeral=True)
+        except ValueError:
+            await interaction.response.send_message("❌ Input must be a valid integer.", ephemeral=True)
+
+
+class RankingRemoveRoleModal(ui.Modal, title="Remove Level Role Reward"):
+    lvl = ui.TextInput(label="Target Level to Clear", placeholder="Level integer")
+
+    def __init__(self, cog, guild):
+        super().__init__()
+        self.cog = cog
+        self.guild = guild
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            level = int(str(self.lvl).strip())
+            async with self.cog.config.guild(self.guild).level_roles() as roles:
+                if str(level) in roles:
+                    roles.pop(str(level))
+                    await interaction.response.send_message(f"✅ Removed role reward for level **{level}**.", ephemeral=True)
+                else:
+                    await interaction.response.send_message(f"❌ No role reward configured for level **{level}**.", ephemeral=True)
+        except ValueError:
+            await interaction.response.send_message("❌ Input must be a valid integer.", ephemeral=True)
+
+
+class RankingOperativeControlModal(ui.Modal, title="Operative DB Control"):
+    uid = ui.TextInput(label="User ID or Username", placeholder="Snowflake or username")
+    action = ui.TextInput(label="Action (givexp / reset)", default="givexp", placeholder="'givexp' or 'reset'")
+    amt = ui.TextInput(label="XP Amount (Only for givexp)", default="500", placeholder="Amount to inject")
+
+    def __init__(self, cog, guild):
+        super().__init__()
+        self.cog = cog
+        self.guild = guild
+
+    async def on_submit(self, interaction: discord.Interaction):
+        target = None
+        input_str = str(self.uid).strip()
+        
+        if input_str.isdigit():
+            target = self.guild.get_member(int(input_str))
+        else:
+            target = discord.utils.find(lambda m: m.name == input_str or m.display_name == input_str, self.guild.members)
+            
+        if not target:
+            return await interaction.response.send_message("❌ User not found in server.", ephemeral=True)
+
+        action_type = str(self.action).strip().lower()
+        if action_type == "reset":
+            await self.cog.config.member(target).xp.set(0)
+            await self.cog.config.member(target).level.set(0)
+            await interaction.response.send_message(f"🧹 Realigned registry buffer. operative {target.mention} reset to lvl 0.", ephemeral=True)
+        elif action_type == "givexp":
+            try:
+                xp_val = int(str(self.amt).strip())
+                await self.cog.add_xp(target, xp_val, interaction.channel)
+                await interaction.response.send_message(f"⚡ Injected {xp_val} XP into operative {target.mention}'s registry buffer.", ephemeral=True)
+            except ValueError:
+                await interaction.response.send_message("❌ XP amount must be an integer.", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ Unknown action. Use 'givexp' or 'reset'.", ephemeral=True)
