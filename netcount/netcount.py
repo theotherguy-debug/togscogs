@@ -1,13 +1,14 @@
-import discord
+import discord # pyright: ignore[reportMissingImports]
 import ast
 import operator
 import datetime
 import random
 import time
 import asyncio
-from typing import Optional
-from redbot.core import commands, Config, bank
-from discord.ext import tasks
+import os
+from typing import Optional, List
+from redbot.core import commands, Config, bank # pyright: ignore[reportMissingImports]
+from discord.ext import tasks # pyright: ignore[reportMissingImports]
 
 # --- HARDENED MATH PARSER ---
 ops = {
@@ -124,7 +125,9 @@ class NetCount(commands.Cog):
             containment_role_id=None,
             multiplier_enabled=True,
             base_reward=10,
-            autoroles={} # dict of str(count_threshold) -> role_id
+            autoroles={} , # dict of str(count_threshold) -> role_id
+            milestone_image_dir=None,  # Custom directory for auto-detected milestone images (None = default cog milestones/ folder)
+            auto_milestones_enabled=True,  # Enable auto-detection of milestone images by filename
         )
         
         self.config.register_member(
@@ -174,6 +177,53 @@ class NetCount(commands.Cog):
             "prestige_level": 0,
             "prestige_target": 10000,
         }
+
+    # --- MILESTONE IMAGE AUTO-DETECTION HELPERS ---
+    SUPPORTED_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp"]
+
+    async def get_milestone_dir(self, guild) -> str:
+        """Get the milestone image directory for a guild, falling back to the default cog milestones/ folder."""
+        custom_dir = await self.config.guild(guild).milestone_image_dir()
+        if custom_dir:
+            return custom_dir
+        return os.path.join(os.path.dirname(__file__), "milestones")
+
+    async def find_milestone_image(self, number: int, guild) -> Optional[str]:
+        """Find an image file named '<number>.<ext>' in the milestone directory."""
+        milestone_dir = await self.get_milestone_dir(guild)
+        if not os.path.isdir(milestone_dir):
+            return None
+        for ext in self.SUPPORTED_IMAGE_EXTENSIONS:
+            file_path = os.path.join(milestone_dir, f"{number}{ext}")
+            if os.path.isfile(file_path):
+                return file_path
+        return None
+
+    async def scan_milestone_images(self, guild, directory: str) -> List[int]:
+        """Scan a directory for milestone image files, returning a list of milestone numbers."""
+        detected = []
+        if not os.path.isdir(directory):
+            return detected
+        for filename in os.listdir(directory):
+            name, ext = os.path.splitext(filename)
+            if ext.lower() in self.SUPPORTED_IMAGE_EXTENSIONS and name.isdigit():
+                detected.append(int(name))
+        return detected
+
+    async def send_milestone_image(self, message: discord.Message, number: int, file_path: str):
+        """Send a milestone image as an embed with the file attached."""
+        author = message.author
+        try:
+            d_file = discord.File(file_path)
+            embed = discord.Embed(
+                title=f"🎉 **MILESTONE REACHED: {number}!** 🎉",
+                description=f"Awesome job, {author.mention}!",
+                color=0x9B59B6
+            )
+            embed.set_image(url=f"attachment://{os.path.basename(file_path)}")
+            await message.reply(embed=embed, file=d_file)
+        except discord.HTTPException:
+            pass
 
     # --- CORE GAMEPLAY ---
     @commands.Cog.listener()
@@ -347,6 +397,13 @@ class NetCount(commands.Cog):
                     await self.handle_survivor_milestone(message, expected_number, ch_data)
                 else:
                     await self.handle_milestone(message, expected_number, milestones[str(expected_number)])
+            elif not is_survivor:
+                # Auto-detect milestone image from filesystem (manual milestones take priority)
+                auto_enabled = await self.config.guild(guild).auto_milestones_enabled()
+                if auto_enabled:
+                    image_path = await self.find_milestone_image(expected_number, guild)
+                    if image_path:
+                        await self.send_milestone_image(message, expected_number, image_path)
 
             # Update channel variables inside lock
             ch_data["current_count"] = expected_number
@@ -776,12 +833,12 @@ class NetCount(commands.Cog):
                 await ctx.send("No auto-role configured for that threshold.")
         """Enable sequence game on a channel."""
         async with self.config.guild(ctx.guild).channels() as channels:
-            ch_str = str(channel.id)
+            ch_str = str(channel.id) # pyright: ignore[reportUndefinedVariable]
             if ch_str in channels:
-                return await ctx.send(f"⚠️ {channel.mention} is already an active sequence channel.")
+                return await ctx.send(f"⚠️ {channel.mention} is already an active sequence channel.") # pyright: ignore[reportUndefinedVariable]
             channels[ch_str] = self.get_default_channel_config()
             
-        await ctx.send(f"🌌 [SYS_INIT] SEQUENCE_PORT set to {channel.mention}. Listening for transmissions...")
+        await ctx.send(f"🌌 [SYS_INIT] SEQUENCE_PORT set to {channel.mention}. Listening for transmissions...") # pyright: ignore[reportUndefinedVariable]
 
     @counting.command(name="removechannel", aliases=["removec", "delchannel", "disable"])
     async def removechannel(self, ctx: commands.Context, channel: discord.TextChannel):
@@ -812,7 +869,7 @@ class NetCount(commands.Cog):
 
     @counting.command(name="viewmilestones", aliases=["viewm", "milestones", "showmilestones"])
     async def viewmilestones(self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None):
-        """View all registered milestones for a channel."""
+        """View all registered milestones for a channel, including auto-detected images."""
         target_channel = channel or ctx.channel
         ch_str = str(target_channel.id)
         
@@ -821,13 +878,35 @@ class NetCount(commands.Cog):
             return await ctx.send(f"⚠️ {target_channel.mention} is not an active sequence channel.")
             
         milestones = channels[ch_str].get("milestones", {})
-        if not milestones:
-            return await ctx.send(f"No milestones configured in {target_channel.mention}.")
+        auto_enabled = await self.config.guild(ctx.guild).auto_milestones_enabled()
+        milestone_dir = await self.get_milestone_dir(ctx.guild)
+        auto_images = await self.scan_milestone_images(ctx.guild, milestone_dir) if auto_enabled else []
+        
+        if not milestones and not auto_images:
+            return await ctx.send(
+                f"No milestones configured in {target_channel.mention}.\n"
+                f"💡 Drop image files (e.g. `100.png`) in `{milestone_dir}` to auto-detect them! "
+                f"Or use `[p]counting addmilestone <number> <value>`."
+            )
             
         msg = f"__**Active Milestones inside {target_channel.mention}**__\n"
-        for num, val in sorted(milestones.items(), key=lambda x: int(x[0])):
-            type_str = f"Sticker/ID: `{val}`" if val.isdigit() else f"URL: `{val}`"
-            msg += f"• **{num}** -> {type_str}\n"
+        
+        if milestones:
+            msg += "\n**📌 Manually Configured Milestones:**\n"
+            for num, val in sorted(milestones.items(), key=lambda x: int(x[0])):
+                type_str = f"Sticker/ID: `{val}`" if val.isdigit() else f"URL: `{val}`"
+                msg += f"• **{num}** -> {type_str}\n"
+        
+        if auto_enabled and auto_images:
+            msg += f"\n**🖼️ Auto-Detected Milestone Images** (from `{milestone_dir}`):\n"
+            for num in sorted(auto_images):
+                if str(num) in milestones:
+                    msg += f"• **{num}** (manual config takes priority)\n"
+                else:
+                    msg += f"• **{num}**\n"
+        
+        if not auto_enabled:
+            msg += "\n*Auto-detection is currently DISABLED. Re-enable with `[p]counting toggleautomilestones true`.*\n"
             
         from redbot.core.utils.chat_formatting import pagify
         for page in pagify(msg):
@@ -848,6 +927,51 @@ class NetCount(commands.Cog):
                 await ctx.send(f"🗑️ [SYS] Milestone **{number}** offline in {target_channel.mention}.")
             else:
                 await ctx.send("⚠️ Beacon milestone not found in config records.")
+
+    @counting.command(name="setmilestonedir", aliases=["setmdir", "mdir"])
+    async def setmilestonedir(self, ctx: commands.Context, *, path: str = None):
+        """Set the directory where auto-detected milestone images are stored. Leave empty to reset to default."""
+        if path is None:
+            await self.config.guild(ctx.guild).milestone_image_dir.clear()
+            default_dir = os.path.join(os.path.dirname(__file__), "milestones")
+            detected = await self.scan_milestone_images(ctx.guild, default_dir)
+            count_str = f"{len(detected)} detected" if detected else "none"
+            await ctx.send(f"✅ Milestone image directory reset to default cog folder: `{default_dir}`\n📁 {count_str} image(s) found.")
+        else:
+            if not os.path.isdir(path):
+                return await ctx.send(f"❌ Directory not found: `{path}`")
+            await self.config.guild(ctx.guild).milestone_image_dir.set(path)
+            detected = await self.scan_milestone_images(ctx.guild, path)
+            count_str = f"{len(detected)} detected" if detected else "none"
+            await ctx.send(f"✅ Milestone image directory set to: `{path}`\n📁 {count_str} image(s) found.")
+
+    @counting.command(name="scanmilestones", aliases=["scanm", "listmilestoneimages"])
+    async def scanmilestones(self, ctx: commands.Context):
+        """Scan the milestone image directory and list all detected milestone images."""
+        milestone_dir = await self.get_milestone_dir(ctx.guild)
+        if not os.path.isdir(milestone_dir):
+            return await ctx.send(f"⚠️ Milestone directory not found: `{milestone_dir}`\nSet one with `[p]counting setmilestonedir <path>`.")
+        
+        detected = await self.scan_milestone_images(ctx.guild, milestone_dir)
+        
+        if not detected:
+            return await ctx.send(f"📁 Milestone directory: `{milestone_dir}`\n🖼️ No milestone images detected. Name files as `<number>.png` (e.g., `100.png`, `500.png`).")
+        
+        msg = f"📁 **Milestone Directory:** `{milestone_dir}`\n"
+        msg += f"🖼️ **Detected Milestone Images ({len(detected)}):**\n"
+        for num in sorted(detected):
+            msg += f"• Milestone **{num}**\n"
+        
+        from redbot.core.utils.chat_formatting import pagify
+        for page in pagify(msg):
+            await ctx.send(page)
+
+    @counting.command(name="toggleautomilestones", aliases=["toggleauto", "tauto"])
+    async def toggleautomilestones(self, ctx: commands.Context, toggle: bool):
+        """Enable or disable auto-detection of milestone images by filename."""
+        await self.config.guild(ctx.guild).auto_milestones_enabled.set(toggle)
+        status = "ENABLED" if toggle else "DISABLED"
+        await ctx.send(f"🖼️ Auto-detected milestone images are now **{status}**.")
 
     @counting.command(name="togglesaves", aliases=["togglesave", "ts"])
     async def togglesaves(self, ctx: commands.Context, toggle: bool, channel: Optional[discord.TextChannel] = None):

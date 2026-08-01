@@ -1,56 +1,116 @@
-# 🔢 netcount
+# NetCount — Sequence Counting Game
 
-The ultimate sequence counting game built for Redbot. It includes wager duels, standard channel counting, and extreme Hardcore Survivor nodes.
-
----
-
-## Rules & How to Play
-
-### 1. Standard Counting Channel
-- **Goal**: Work as a team to count up from `1` sequentially (`1`, `2`, `3`...).
-- **Rule**: You **cannot** count twice in a row. Someone else must input the next number.
-- **Wagers**: If enabled, players can spend credits to purchase save tokens to protect the streak.
-
-### 2. PvP Duels (`[p]cduel`)
-- **Stakes**: Challenge another user to a live sequence-counting speed battle for server credits!
-- **Gameplay**:
-  - Once the duel is accepted, the system opens a temporary thread arena.
-  - The **5-second turn timer** starts only after the first count (the number 1) is typed.
-  - Players must type the next sequence number within their 5-second turn window.
-  - If a player inputs a wrong number, types twice in a row, or lets the timer hit `0`, they fail and the opponent wins the credit wager!
-
-### 3. Hardcore Survivor Mode
-- **Stakes**: Extremely high-stakes counting node designed for advanced operators.
-- **Entry Gate**: Requires a minimum regular sequence contribution score and a purchased lifetime **Survivor License** (default: `5,000` credits).
-- **Rules**:
-  - **No Saves**: Save tokens cannot be used here. One mistake resets the streak to 0.
-  - **Exile & Containment**: The player who makes a mistake is shamed with a custom nickname, stripped of their access roles, and exiled from the channel for `168 hours` (7 days).
-  - **Bankruptcy**: The failing player is fined `50%` of their entire credit balance, which is split as a jackpot among the players who contributed to the current streak.
+A multi-channel sequence counting game with cybersecurity elements. Features economy-linked wagers, save tokens, prestige targets, real-time 1v1 duels, and a brutal Survivor mode with license fees, bankruptcy penalties, and exile timers.
 
 ---
 
-## Player Commands
+## 🚀 Setup & Installation
 
-### ⚔️ PvP Counting Duels (`cduel` group)
-*   **`[p]cduel challenge <member> [wager]`** — Challenges a player to a live sequence battle with an optional credit wager.
-*   **`[p]cduel accept`** — Accepts a pending duel challenge (opens thread, deducts wagers).
-*   **`[p]cduel decline`** — Rejects a pending duel challenge.
-*   **`[p]cduel status`** — Displays active duels on the server.
+1. Load the cog:
+   ```
+   [p]load netcount
+   ```
+2. Enable counting in a channel:
+   - **GUI**: Open `/root` → **Counting System** → select a channel → **Toggle Counting**
+   - **Or** configure via cog-specific settings
 
-### 🛡️ Shields & Licenses
-*   **`[p]buysave [channel]`** (Alias: `[p]bs`) — Purchases a backup save token for a channel.
-*   **`[p]buysurvivorlicense`** (Alias: `[p]buysurv`) — Purchases a lifetime license to access Survivor channels.
-
-### 🏆 Scores & Leaderboards
-*   **`[p]countlb`** (Aliases: `[p]clb`, `[p]scoreboard`) — Displays the top 10 players on the server.
+> [!IMPORTANT]
+> Load `netcount` **before** `netrank` so ranking events are dispatched correctly.
 
 ---
 
-## Administrator Commands
-Require **Manage Guild** permissions.
+## 🎮 How Counting Works
 
-*   **`[p]counting addchannel <channel>`** — Enable sequence counting in a channel.
-*   **`[p]counting removechannel <channel>`** — Disable counting and wipe channel logs.
-*   **`[p]counting setcount <number> [channel]`** — Manually override/set the current count.
-*   **`[p]counting survivor`** — Sub-command group to configure Survivor Mode (fees, bankruptcy %, exile times).
-*   **`[p]root`** (or `/root`) — Opens the Mainframe Admin Dashboard to configure everything via buttons.
+Members take turns posting sequential numbers in a counting channel. Rules:
+- **No double-counting**: You can't count twice in a row
+- **Correct number only**: Wrong numbers break the streak (consequences depend on mode)
+- **Streak multiplier**: Every 100 numbers, a bonus multiplier kicks in
+
+### Survivor Mode
+An extreme-stakes variant where:
+- **Saves are disabled** — one mistake resets the count
+- **License required** — users must purchase a survivor license with credits
+- **Bankruptcy penalty** — the person who breaks the chain loses a percentage of their bank balance
+- **Exile** — rule-breakers are temporarily banned from the survivor channel
+- **Jackpot** — credits accumulate in a vault and pay out at milestones
+
+---
+
+## 🖼️ Milestone Images (Auto-Detection)
+
+NetCount can automatically detect and send milestone images when a count milestone is reached — **no manual configuration needed**.
+
+### How It Works
+
+1. **Name your image files by the milestone number** (e.g., `100.png`, `500.jpg`, `1000.gif`)
+2. **Place them in a directory** — either the default `milestones/` folder next to the cog, or a custom path
+3. **The bot auto-detects them** when that count is reached and posts the image
+
+### Supported Formats
+`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`
+
+### Priority
+Manual milestones (set via `addmilestone`) take priority over auto-detected images. This lets you override specific milestones with URLs or stickers while using auto-detection for the rest.
+
+### Commands
+
+| Command | Description |
+|:---|:---|
+| `[p]counting setmilestonedir <path>` | Set a custom directory for milestone images. Leave empty to reset to default. |
+| `[p]counting scanmilestones` | Scan the directory and list all detected milestone images |
+| `[p]counting toggleautomilestones <true/false>` | Enable or disable auto-detection |
+
+### Example
+```
+# Drop files in the default folder:
+Togscogs/netcount/milestones/
+├── 100.png      ← triggers at count 100
+├── 500.jpg      ← triggers at count 500
+└── 1000.gif     ← triggers at count 1000
+
+# Or point to a custom folder:
+[p]counting setmilestonedir C:\path\to\your\images
+
+# Verify what's detected:
+[p]counting scanmilestones
+```
+
+---
+
+## ⌨️ User Commands
+
+| Command | Description |
+|:---|:---|
+| `[p]cduel <opponent> [wager]` | Challenge another user to a real-time counting duel in a private thread. Optional credit wager. |
+| `[p]buysurv` / `[p]buysurvivorlicense` | Purchase a license to participate in survivor counting rooms |
+| `[p]jackpot` | View credits currently accumulated in the counting vault |
+
+---
+
+## 🔗 Integration with NetRank
+
+NetCount dispatches three custom events that NetRank listens to:
+
+| Event | When Fired | XP Effect |
+|:---|:---|:---|
+| `on_netcount_valid_count` | Every correct sequential count | Awards base XP × streak multiplier |
+| `on_netcount_duel_complete` | When a duel ends | Awards lump-sum XP to the winner (wager=0 only) |
+| `on_netcount_survivor_milestone` | When a survivor milestone is reached | Splits milestone XP among contributors |
+
+---
+
+## 🛠️ Admin Controls (via `/root` → Counting System)
+
+| Button | Description |
+|:---|:---|
+| **Toggle Counting** | Enable/disable counting in the selected channel |
+| **Toggle Survivor Mode** | Activate extreme-stakes survivor rules |
+| **Toggle Saves** | Enable/disable save token usage per channel |
+| **Toggle Economy** | Link counting rewards to the Red economy |
+| **Set Current Count** | Manually override the current count value |
+| **Give Save Token** | Award save tokens to a channel's pool |
+| **Set Save Price** | Set the credit cost to purchase saves |
+| **Set Prestige Target** | Set the target number for prestige resets (min 100) |
+| **Survivor Rules** | Configure license fees, bankruptcy %, and exile duration |
+| **Global Shaming** | Set shame nickname tags and lockout durations |
+| **Pardon Member** | Release a shamed user early from containment |
