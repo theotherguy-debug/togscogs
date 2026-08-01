@@ -28,13 +28,17 @@ class NetRank(commands.Cog):
                 "counts": True,
                 "duels": True,
                 "survivor": True,
-                "messages": False
+                "messages": False,
+                "voice": True
             },
             "xp_per_count": 10,
             "xp_per_duel_win": 250,
             "xp_per_survivor_milestone": 500,
             "xp_per_message": 5,
             "message_xp_cooldown": 60,
+            "xp_per_voice_minute": 2,
+            "voice_xp_interval": 60,  # Award XP every 60 seconds in VC
+            "voice_min_members": 2,  # Minimum members needed to earn XP
             "level_up_channel_id": None,
             "level_roles": {},  # str(level) -> role_id
             "rank_enabled": True
@@ -43,11 +47,20 @@ class NetRank(commands.Cog):
         default_member = {
             "xp": 0,
             "level": 0,
-            "last_message_xp_time": 0.0
+            "last_message_xp_time": 0.0,
+            "last_voice_xp_time": 0.0,
+            "voice_session_start": 0.0
         }
 
         self.config.register_guild(**default_guild)
         self.config.register_member(**default_member)
+
+        # Start background tasks
+        self.voice_xp_checker.start()
+
+    def cog_unload(self):
+        """Clean up background tasks when cog is unloaded."""
+        self.voice_xp_checker.cancel()
 
     # --- XP and Level Helpers ---
 
@@ -259,6 +272,72 @@ class NetRank(commands.Cog):
             await self.config.member(message.author).last_message_xp_time.set(now)
             await self.add_xp(message.author, xp_to_award, message.channel)
 
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+        """Track voice channel join/leave for XP session management."""
+        if member.bot:
+            return
+
+        # User joined a voice channel
+        if before.channel is None and after.channel is not None:
+            if after.afk:
+                return
+            await self.config.member(member).voice_session_start.set(time.time())
+            await self.config.member(member).last_voice_xp_time.set(0.0)
+
+        # User left a voice channel
+        elif before.channel is not None and after.channel is None:
+            await self.config.member(member).voice_session_start.set(0.0)
+            await self.config.member(member).last_voice_xp_time.set(0.0)
+
+        # User switched channels
+        elif before.channel is not None and after.channel is not None:
+            await self.config.member(member).voice_session_start.set(time.time())
+            await self.config.member(member).last_voice_xp_time.set(0.0)
+
+    @tasks.loop(seconds=60)
+    async def voice_xp_checker(self):
+        """Background task to award voice channel XP every minute."""
+        for guild in self.bot.guilds:
+            sources = await self.config.guild(guild).xp_sources()
+            if not sources.get("voice", True):
+                continue
+
+            xp_per_minute = await self.config.guild(guild).xp_per_voice_minute()
+            min_members = await self.config.guild(guild).voice_min_members()
+            now = time.time()
+
+            for member in guild.members:
+                if member.bot:
+                    continue
+
+                # Check if member is in a voice channel
+                if not member.voice or not member.voice.channel:
+                    continue
+
+                # Check if AFK
+                if member.voice.afk:
+                    continue
+
+                # Check minimum members requirement (non-bot only)
+                channel = member.voice.channel
+                non_bot_members = [m for m in channel.members if not m.bot]
+                if len(non_bot_members) < min_members:
+                    continue
+
+                # Check cooldown
+                last_voice_xp = await self.config.member(member).last_voice_xp_time()
+                if now - last_voice_xp < 60:
+                    continue
+
+                # Award XP
+                await self.config.member(member).last_voice_xp_time.set(now)
+                await self.add_xp(member, xp_per_minute, channel)
+
+    @voice_xp_checker.before_loop
+    async def before_voice_xp_checker(self):
+        await self.bot.wait_until_red_ready()
+
     # --- User-Facing Commands ---
 
     @commands.hybrid_command(name="rank", aliases=["level", "xp"])
@@ -419,8 +498,8 @@ class NetRank(commands.Cog):
 
     @ranking.command(name="setxp")
     async def ranking_setxp(self, ctx: commands.Context, source: str, amount: int):
-        """Configure XP rewards per source (counts, duels, survivor, messages)."""
-        valid_sources = ["counts", "duels", "survivor", "messages"]
+        """Configure XP rewards per source (counts, duels, survivor, messages, voice)."""
+        valid_sources = ["counts", "duels", "survivor", "messages", "voice"]
         source = source.lower()
         if source not in valid_sources:
             return await ctx.send(f"❌ Invalid source. Choose from: {', '.join(valid_sources)}")
@@ -436,6 +515,8 @@ class NetRank(commands.Cog):
             await self.config.guild(ctx.guild).xp_per_survivor_milestone.set(amount)
         elif source == "messages":
             await self.config.guild(ctx.guild).xp_per_message.set(amount)
+        elif source == "voice":
+            await self.config.guild(ctx.guild).xp_per_voice_minute.set(amount)
 
         await ctx.send(f"✅ Successfully updated reward parameter. **{source}** now grants **{amount} XP**.")
 

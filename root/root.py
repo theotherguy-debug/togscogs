@@ -1302,8 +1302,9 @@ class RankingConfigureXPModal(ui.Modal, title="Configure XP Sources & Amounts"):
     xp_count = ui.TextInput(label="Base XP per Count", default="10", placeholder="Integer")
     xp_duel = ui.TextInput(label="XP per Duel Win (No wager)", default="250", placeholder="Integer")
     xp_surv = ui.TextInput(label="XP per Survivor Milestone", default="500", placeholder="Integer")
-    xp_msg = ui.TextInput(label="XP per Msg / Msg Cooldown (sec)", default="5, 60", placeholder="Comma separated, e.g. 5, 60")
-    sources = ui.TextInput(label="Enable Sources (counts, duels, surv, msg)", default="yes, yes, yes, no", placeholder="Yes/No comma separated")
+    xp_msg = ui.TextInput(label="XP per Msg / Cooldown (sec)", default="5, 60", placeholder="Comma separated, e.g. 5, 60")
+    xp_voice = ui.TextInput(label="XP per VC Minute / Min Members", default="2, 2", placeholder="Comma separated, e.g. 2, 2")
+    sources = ui.TextInput(label="Enable Sources (counts, duels, surv, msg, voice)", default="yes, yes, yes, no, yes", placeholder="Yes/No comma separated")
 
     def __init__(self, cog, guild):
         super().__init__()
@@ -1320,23 +1321,31 @@ class RankingConfigureXPModal(ui.Modal, title="Configure XP Sources & Amounts"):
             xm = int(xm_parts[0])
             xm_cd = int(xm_parts[1]) if len(xm_parts) > 1 else 60
 
+            xv_parts = [p.strip() for p in str(self.xp_voice).split(",")]
+            xv = int(xv_parts[0])
+            xv_min = int(xv_parts[1]) if len(xv_parts) > 1 else 2
+
             src_parts = [p.strip().lower() in ["yes", "true", "y", "1"] for p in str(self.sources).split(",")]
             counts_on = src_parts[0] if len(src_parts) > 0 else True
             duels_on = src_parts[1] if len(src_parts) > 1 else True
             surv_on = src_parts[2] if len(src_parts) > 2 else True
             msg_on = src_parts[3] if len(src_parts) > 3 else False
+            voice_on = src_parts[4] if len(src_parts) > 4 else True
 
             await self.cog.config.guild(self.guild).xp_per_count.set(xc)
             await self.cog.config.guild(self.guild).xp_per_duel_win.set(xd)
             await self.cog.config.guild(self.guild).xp_per_survivor_milestone.set(xs)
             await self.cog.config.guild(self.guild).xp_per_message.set(xm)
             await self.cog.config.guild(self.guild).message_xp_cooldown.set(xm_cd)
+            await self.cog.config.guild(self.guild).xp_per_voice_minute.set(xv)
+            await self.cog.config.guild(self.guild).voice_min_members.set(xv_min)
 
             sources_dict = {
                 "counts": counts_on,
                 "duels": duels_on,
                 "survivor": surv_on,
-                "messages": msg_on
+                "messages": msg_on,
+                "voice": voice_on
             }
             await self.cog.config.guild(self.guild).xp_sources.set(sources_dict)
 
