@@ -1,6 +1,7 @@
 import discord
 import asyncio
 import time
+import os
 from typing import Optional, List
 from redbot.core import commands, Config, bank
 from discord import ui
@@ -271,7 +272,28 @@ class CountingSubsystemView(ui.View):
         modal = CountingPardonUserModal(self.cog)
         await interaction.response.send_modal(modal)
 
-    @ui.button(label="Main Menu", style=discord.ButtonStyle.danger, emoji="⬅️", row=3)
+    @ui.button(label="Set Image Dir", style=discord.ButtonStyle.primary, emoji="📁", row=4)
+    async def set_image_dir_btn(self, interaction: discord.Interaction, button: ui.Button):
+        modal = CountingSetMilestoneDirModal(self.cog)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Scan Images", style=discord.ButtonStyle.secondary, emoji="🖼️", row=4)
+    async def scan_images_btn(self, interaction: discord.Interaction, button: ui.Button):
+        guild = interaction.guild
+        import os
+        milestone_dir = await self.cog.get_milestone_dir(guild)
+        if not os.path.isdir(milestone_dir):
+            await interaction.response.send_message(f"⚠️ Milestone directory not found: `{milestone_dir}`", ephemeral=True)
+            return
+        detected = await self.cog.scan_milestone_images(guild, milestone_dir)
+        if not detected:
+            await interaction.response.send_message(f"📁 Directory: `{milestone_dir}`\n🖼️ No milestone images detected. Name files as `<number>.png`.", ephemeral=True)
+            return
+        msg = f"📁 **Directory:** `{milestone_dir}`\n"
+        msg += f"🖼️ **Detected ({len(detected)}):**\n" + "\n".join(f"• Milestone **{n}**" for n in sorted(detected))
+        await interaction.response.send_message(msg, ephemeral=True)
+
+    @ui.button(label="Main Menu", style=discord.ButtonStyle.danger, emoji="⬅️", row=4)
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.edit_message(embed=self.parent_view.get_main_embed(), view=self.parent_view)
 
@@ -335,6 +357,43 @@ class CountingPardonUserModal(ui.Modal, title="Pardon Member Early"):
             f"✅ **PARDON GRANTED:** {target.mention} has been released from shaming containment and survivor channel exile.",
             ephemeral=True
         )
+
+
+class CountingSetMilestoneDirModal(ui.Modal, title="Set Milestone Image Directory"):
+    path = ui.TextInput(
+        label="Directory Path (leave empty for default)",
+        placeholder="E.g. C:\\Users\\...\\milestone_images",
+        required=False,
+        default=""
+    )
+
+    def __init__(self, cog):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction):
+        import os
+        path_str = str(self.path).strip()
+        if not path_str:
+            await self.cog.config.guild(interaction.guild).milestone_image_dir.clear()
+            default_dir = os.path.join(os.path.dirname(self.cog.__file__), "milestones")
+            detected = await self.cog.scan_milestone_images(interaction.guild, default_dir)
+            count_str = f"{len(detected)} detected" if detected else "none"
+            await interaction.response.send_message(
+                f"✅ Milestone image directory reset to default: `{default_dir}`\n📁 {count_str} image(s) found.",
+                ephemeral=True
+            )
+        else:
+            if not os.path.isdir(path_str):
+                await interaction.response.send_message(f"❌ Directory not found: `{path_str}`", ephemeral=True)
+                return
+            await self.cog.config.guild(interaction.guild).milestone_image_dir.set(path_str)
+            detected = await self.cog.scan_milestone_images(interaction.guild, path_str)
+            count_str = f"{len(detected)} detected" if detected else "none"
+            await interaction.response.send_message(
+                f"✅ Milestone image directory set to: `{path_str}`\n📁 {count_str} image(s) found.",
+                ephemeral=True
+            )
 
 
 class CountingRulesModal(ui.Modal, title="Configure Counting Settings"):
@@ -867,7 +926,7 @@ class WellbeingSubsystemView(ui.View):
             f" Selected Channel ID: {self.selected_channel_id or 'None'}\n"
             f"```"
         )
-        return discord.Embed(title="Subsystem: Wellbeing Reminders", description=desc, color=discord.Color.teal())
+        return discord.Embed(title="Subsystem: Wellbeing Reminders", description=desc, color=discord.Color.cyan())
 
     @ui.button(label="Add Alert Channel", style=discord.ButtonStyle.primary, row=1)
     async def add_channel(self, interaction: discord.Interaction, button: ui.Button):
