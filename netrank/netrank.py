@@ -11,7 +11,7 @@ from discord import ui
 RED = "\u001b[1;31m"
 GREEN = "\u001b[1;32m"
 YELLOW = "\u001b[1;33m"
-CYAN = "\u001b[1;36m"
+TEAL = "\u001b[1;36m"
 WHITE = "\u001b[1;37m"
 DARK_GRAY = "\u001b[1;30m"
 RESET = "\u001b[0m"
@@ -153,9 +153,9 @@ class NetRank(commands.Cog):
         tier = self.get_rank_tier(level)
         announcement_desc = (
             f"```ansi\n"
-            f"{CYAN}╔══════════════════════════════════════════════════════╗{RESET}\n"
-            f"{CYAN}║             🟢 SYSTEM ELEVATION DETECTED             ║{RESET}\n"
-            f"{CYAN}╚══════════════════════════════════════════════════════╝{RESET}\n\n"
+            f"{TEAL}╔══════════════════════════════════════════════════════╗{RESET}\n"
+            f"{TEAL}║             🟢 SYSTEM ELEVATION DETECTED             ║{RESET}\n"
+            f"{TEAL}╚══════════════════════════════════════════════════════╝{RESET}\n\n"
             f" Operative {WHITE}{member.display_name}{RESET} has bypassed mainframe limits!\n"
             f" New Cleared Level: {GREEN}{level}{RESET}\n"
             f" Security Cleared Class: {YELLOW}{tier}{RESET}\n"
@@ -165,7 +165,7 @@ class NetRank(commands.Cog):
         embed = discord.Embed(
             title="⚡ Operative Level Up!",
             description=announcement_desc + (assigned_role_msg if assigned_role_msg else ""),
-            color=discord.Color.cyan()
+            color=discord.Color.teal()
         )
 
         # 3. Deliver announcements
@@ -391,15 +391,15 @@ class NetRank(commands.Cog):
 
         card_desc = (
             f"```ansi\n"
-            f"{CYAN}╔══════════════════════════════════════════════════════╗{RESET}\n"
-            f"{CYAN}║               SYSTEM OPERATIVE DOS: 4.1              ║{RESET}\n"
-            f"{CYAN}╚══════════════════════════════════════════════════════╝{RESET}\n\n"
+            f"{TEAL}╔══════════════════════════════════════════════════════╗{RESET}\n"
+            f"{TEAL}║               SYSTEM OPERATIVE DOS: 4.1              ║{RESET}\n"
+            f"{TEAL}╚══════════════════════════════════════════════════════╝{RESET}\n\n"
             f"  OPERATIVE:   {WHITE}{member.name}#{member.discriminator}{RESET}\n"
             f"  ACCESS LVL:  {GREEN}{current_level}{RESET} [{YELLOW}{tier}{RESET}]\n"
-            f"  GLOBAL RANK: {CYAN}#{user_rank if user_rank > 0 else 'N/A'}{RESET} / {total_players}\n\n"
+            f"  GLOBAL RANK: {TEAL}#{user_rank if user_rank > 0 else 'N/A'}{RESET} / {total_players}\n\n"
             f"  SYSTEM INDEX PROGRESSION:\n"
             f"  XP: {GREEN}{current_xp:,}{RESET} / {WHITE}{next_lvl_xp_start:,}{RESET} [{percentage:.1f}%]\n"
-            f"  {CYAN}[{GREEN}{bar}{CYAN}]{RESET}\n"
+            f"  {TEAL}[{GREEN}{bar}{TEAL}]{RESET}\n"
             f"```"
         )
 
@@ -464,9 +464,9 @@ class NetRank(commands.Cog):
 
         desc = (
             f"```ansi\n"
-            f"{CYAN}╔══════════════════════════════════════════════════════╗{RESET}\n"
-            f"{CYAN}║            SERVER XP OPERATIVE LEADERBOARD           ║{RESET}\n"
-            f"{CYAN}╚══════════════════════════════════════════════════════╝{RESET}\n\n"
+            f"{TEAL}╔══════════════════════════════════════════════════════╗{RESET}\n"
+            f"{TEAL}║            SERVER XP OPERATIVE LEADERBOARD           ║{RESET}\n"
+            f"{TEAL}╚══════════════════════════════════════════════════════╝{RESET}\n\n"
             f"  Rank  Operative                 Level     Decrypted XP\n"
             + "\n".join(leaderboard_lines) +
             f"\n```"
