@@ -272,6 +272,16 @@ class CountingSubsystemView(ui.View):
         modal = CountingPardonUserModal(self.cog)
         await interaction.response.send_modal(modal)
 
+    @ui.button(label="Survivor Bypass", style=discord.ButtonStyle.success, emoji="🛡️", row=3)
+    async def survivor_bypass_btn(self, interaction: discord.Interaction, button: ui.Button):
+        modal = CountingSurvivorBypassModal(self.cog)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="View Stats", style=discord.ButtonStyle.primary, emoji="📊", row=3)
+    async def view_stats_btn(self, interaction: discord.Interaction, button: ui.Button):
+        modal = CountingViewStatsModal(self.cog)
+        await interaction.response.send_modal(modal)
+
     @ui.button(label="Set Image Dir", style=discord.ButtonStyle.primary, emoji="📁", row=4)
     async def set_image_dir_btn(self, interaction: discord.Interaction, button: ui.Button):
         modal = CountingSetMilestoneDirModal(self.cog)
@@ -357,6 +367,105 @@ class CountingPardonUserModal(ui.Modal, title="Pardon Member Early"):
             f"✅ **PARDON GRANTED:** {target.mention} has been released from shaming containment and survivor channel exile.",
             ephemeral=True
         )
+
+
+class CountingSurvivorBypassModal(ui.Modal, title="Survivor Override Bypass"):
+    uid = ui.TextInput(label="User ID or Username", placeholder="E.g. 1234567890")
+    action = ui.TextInput(label="Action (grant / revoke)", default="grant", placeholder="'grant' or 'revoke'")
+
+    def __init__(self, cog):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        target = None
+        input_str = str(self.uid).strip()
+        
+        if input_str.isdigit():
+            target = guild.get_member(int(input_str))
+        else:
+            target = discord.utils.find(lambda m: m.name == input_str or m.display_name == input_str, guild.members)
+            
+        if not target:
+            return await interaction.response.send_message("❌ User not found in server.", ephemeral=True)
+            
+        action_type = str(self.action).strip().lower()
+        if action_type == "grant":
+            await self.cog.config.member(target).survivor_bypass.set(True)
+            await interaction.response.send_message(f"✅ **Bypass Granted:** {target.mention} can now bypass the 100-count entry requirement.", ephemeral=True)
+        elif action_type == "revoke":
+            await self.cog.config.member(target).survivor_bypass.set(False)
+            await interaction.response.send_message(f"✅ **Bypass Revoked:** {target.mention} must now meet the count requirement.", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ Unknown action. Use 'grant' or 'revoke'.", ephemeral=True)
+
+
+class CountingViewStatsModal(ui.Modal, title="View User Counting Stats"):
+    uid = ui.TextInput(label="User ID or Username", placeholder="E.g. 1234567890")
+
+    def __init__(self, cog):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        target = None
+        input_str = str(self.uid).strip()
+        
+        if input_str.isdigit():
+            target = guild.get_member(int(input_str))
+        else:
+            target = discord.utils.find(lambda m: m.name == input_str or m.display_name == input_str, guild.members)
+            
+        if not target:
+            return await interaction.response.send_message("❌ User not found in server.", ephemeral=True)
+            
+        data = await self.cog.config.member(target).all()
+        valid = data.get("total_valid_counts", 0)
+        highest = data.get("highest_progression", 0)
+        ruined = data.get("times_ruined", 0)
+        has_license = data.get("has_survivor_license", False)
+        bypass = data.get("survivor_bypass", False)
+        
+        total_attempts = valid + ruined
+        accuracy = (valid / total_attempts * 100) if total_attempts > 0 else 0.0
+        
+        embed = discord.Embed(
+            title=f"📊 Counting Stats: {target.display_name}",
+            color=discord.Color.blue()
+        )
+        embed.set_thumbnail(url=target.display_avatar.url if target.display_avatar else None)
+        
+        desc = (
+            f"**Total Valid Counts:** `{valid}`\n"
+            f"**Highest Single Count:** `{highest}`\n"
+            f"**Times Ruined:** `{ruined}`\n"
+            f"**Accuracy:** `{accuracy:.1f}%`\n"
+        )
+        
+        if bypass:
+            desc += f"\n**Survivor Bypass:** `Active` 🛡️"
+        
+        survivor_exile_end = data.get("survivor_exile_end")
+        if survivor_exile_end and time.time() < survivor_exile_end:
+            remaining = int(survivor_exile_end - time.time())
+            h = remaining // 3600
+            m = (remaining % 3600) // 60
+            desc += f"\n**Survivor Exile:** `Active` ({h}h {m}m left) ⛔"
+            
+        penalty_end = data.get("penalty_end_time")
+        if penalty_end and time.time() < penalty_end:
+            remaining = int(penalty_end - time.time())
+            h = remaining // 3600
+            m = (remaining % 3600) // 60
+            desc += f"\n**Shame Penalty:** `Active` ({h}h {m}m left) 🔒"
+            
+        if has_license:
+            desc += f"\n\n🎫 **Survivor License Owner**"
+            
+        embed.description = desc
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 class CountingSetMilestoneDirModal(ui.Modal, title="Set Milestone Image Directory"):
@@ -775,7 +884,77 @@ class AutoCleanSubsystemView(ui.View):
         modal = AutoCleanIgnoreRoleModal(self.cog, channel)
         await interaction.response.send_modal(modal)
 
-    @ui.button(label="Main Menu", style=discord.ButtonStyle.danger, emoji="⬅️", row=2)
+    @ui.button(label="Toggle Sweep", style=discord.ButtonStyle.primary, row=3)
+    async def toggle_sweep(self, interaction: discord.Interaction, button: ui.Button):
+        if not self.selected_channel_id:
+            return await interaction.response.send_message("❌ Please select a channel first.", ephemeral=True)
+        channel = self.bot.get_channel(int(self.selected_channel_id))
+        
+        current = await self.cog.config.channel(channel).sweep_enabled()
+        await self.cog.config.channel(channel).sweep_enabled.set(not current)
+        status = "ENABLED" if not current else "DISABLED"
+        await interaction.response.send_message(f"🧹 Periodic sweeping in <#{channel.id}> set to **{status}**.", ephemeral=True)
+
+    @ui.button(label="Set Sweep Days", style=discord.ButtonStyle.secondary, row=3)
+    async def set_sweepdays(self, interaction: discord.Interaction, button: ui.Button):
+        if not self.selected_channel_id:
+            return await interaction.response.send_message("❌ Please select a channel first.", ephemeral=True)
+        channel = self.bot.get_channel(int(self.selected_channel_id))
+        modal = AutoCleanSweepDaysModal(self.cog, channel)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Toggle Pin Mode", style=discord.ButtonStyle.secondary, row=3)
+    async def toggle_pinmode(self, interaction: discord.Interaction, button: ui.Button):
+        if not self.selected_channel_id:
+            return await interaction.response.send_message("❌ Please select a channel first.", ephemeral=True)
+        channel = self.bot.get_channel(int(self.selected_channel_id))
+        
+        current = await self.cog.config.channel(channel).keep_pinned()
+        await self.cog.config.channel(channel).keep_pinned.set(not current)
+        status = "PRESERVED" if not current else "DELETED"
+        await interaction.response.send_message(f"📌 Pinned messages in <#{channel.id}> will now be **{status}** during cleanups.", ephemeral=True)
+
+    @ui.button(label="Status", style=discord.ButtonStyle.secondary, row=3)
+    async def channel_status(self, interaction: discord.Interaction, button: ui.Button):
+        if not self.selected_channel_id:
+            return await interaction.response.send_message("❌ Please select a channel first.", ephemeral=True)
+        
+        channel = self.bot.get_channel(int(self.selected_channel_id))
+        enabled = await self.cog.config.channel(channel).enabled()
+        delay = await self.cog.config.channel(channel).delay()
+        sweep = await self.cog.config.channel(channel).sweep_enabled()
+        sweepdays = await self.cog.config.channel(channel).sweep_days()
+        pinned = await self.cog.config.channel(channel).keep_pinned()
+        log_channels = await self.cog.config.guild(interaction.guild).log_channels()
+        is_log = channel.id in log_channels
+        
+        msg = f"**Status for <#{channel.id}>:**\n"
+        msg += f"• Live Deletion: `{'ON' if enabled else 'OFF'}` (Delay: {delay}s)\n"
+        msg += f"• Periodic Sweep: `{'ON' if sweep else 'OFF'}` (Age threshold: {sweepdays} days)\n"
+        msg += f"• Pinned Messages: `{'Kept' if pinned else 'Deleted'}`\n"
+        msg += f"• 30-Day Auto-Log Wipe: `{'Registered' if is_log else 'No'}`\n"
+        await interaction.response.send_message(msg, ephemeral=True)
+
+    @ui.button(label="Toggle Log Channel", style=discord.ButtonStyle.primary, row=4)
+    async def toggle_log(self, interaction: discord.Interaction, button: ui.Button):
+        if not self.selected_channel_id:
+            return await interaction.response.send_message("❌ Please select a channel first.", ephemeral=True)
+        
+        cid = int(self.selected_channel_id)
+        async with self.cog.config.guild(interaction.guild).log_channels() as logs:
+            if cid in logs:
+                logs.remove(cid)
+                await interaction.response.send_message(f"✅ Unregistered <#{cid}> from 30-day automated wipes.", ephemeral=True)
+            else:
+                logs.append(cid)
+                await interaction.response.send_message(f"✅ Registered <#{cid}> for 30-day automated wipes.", ephemeral=True)
+
+    @ui.button(label="Force Clear Logs", style=discord.ButtonStyle.danger, row=4)
+    async def clear_logs(self, interaction: discord.Interaction, button: ui.Button):
+        modal = AutoCleanClearLogsModal(self.cog, interaction.guild)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Main Menu", style=discord.ButtonStyle.danger, emoji="⬅️", row=4)
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.edit_message(embed=self.parent_view.get_main_embed(), view=self.parent_view)
 
@@ -889,6 +1068,55 @@ class AutoCleanIgnoreRoleModal(ui.Modal, title="Whitelist Role"):
                 ignored.remove(target.id)
                 msg = f"Removed role **{target.name}** from AutoClean whitelist."
             else:
+                ignored.append(target.id)
+                msg = f"Added role **{target.name}** to AutoClean whitelist."
+        await interaction.response.send_message(f"✅ {msg}", ephemeral=True)
+
+
+class AutoCleanSweepDaysModal(ui.Modal, title="Configure Periodic Sweep"):
+    days = ui.TextInput(label="Message Age (Days)", default="14", placeholder="Days before sweep")
+
+    def __init__(self, cog, channel):
+        super().__init__()
+        self.cog = cog
+        self.channel = channel
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            d = int(str(self.days))
+            await self.cog.config.channel(self.channel).sweep_days.set(d)
+            await interaction.response.send_message(f"✅ Periodic sweep threshold updated to **{d} days** for <#{self.channel.id}>.", ephemeral=True)
+        except ValueError:
+            await interaction.response.send_message("❌ Input must be a valid integer.", ephemeral=True)
+
+
+class AutoCleanClearLogsModal(ui.Modal, title="Force Clear 30-Day Logs"):
+    confirm = ui.TextInput(label="Type 'CONFIRM' to wipe", placeholder="CONFIRM")
+
+    def __init__(self, cog, guild):
+        super().__init__()
+        self.cog = cog
+        self.guild = guild
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if str(self.confirm).strip().upper() != "CONFIRM":
+            return await interaction.response.send_message("❌ Log clear aborted.", ephemeral=True)
+            
+        logs = await self.cog.config.guild(self.guild).log_channels()
+        if not logs:
+            return await interaction.response.send_message("⚠️ No log channels registered.", ephemeral=True)
+            
+        await interaction.response.defer(ephemeral=True)
+        count = 0
+        for cid in logs:
+            ch = self.guild.get_channel(cid)
+            if ch:
+                try:
+                    await ch.purge(limit=None)
+                    count += 1
+                except Exception:
+                    pass
+        await interaction.followup.send(f"🧹 Successfully wiped **{count}** registered log channels.", ephemeral=True)
                 ignored.append(target.id)
                 msg = f"Added role **{target.name}** to AutoClean whitelist."
         await interaction.response.send_message(f"✅ {msg}", ephemeral=True)
@@ -1278,7 +1506,12 @@ class RankingSubsystemView(ui.View):
         modal = RankingOperativeControlModal(self.cog, interaction.guild)
         await interaction.response.send_modal(modal)
 
-    @ui.button(label="Main Menu", style=discord.ButtonStyle.danger, emoji="⬅️", row=2)
+    @ui.button(label="Master Reset", style=discord.ButtonStyle.danger, emoji="⚠️", row=3)
+    async def master_reset(self, interaction: discord.Interaction, button: ui.Button):
+        modal = RankingMasterResetModal(self.cog, interaction.guild)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Main Menu", style=discord.ButtonStyle.danger, emoji="⬅️", row=4)
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.edit_message(embed=self.parent_view.get_main_embed(), view=self.parent_view)
 
@@ -1333,6 +1566,40 @@ class RankingConfigureXPModal(ui.Modal, title="Configure XP Sources & Amounts"):
             voice_on = src_parts[4] if len(src_parts) > 4 else True
 
             await self.cog.config.guild(self.guild).xp_per_count.set(xc)
+            await self.cog.config.guild(self.guild).xp_per_duel.set(xd)
+            await self.cog.config.guild(self.guild).xp_survivor_milestone.set(xs)
+            
+            await self.cog.config.guild(self.guild).xp_per_message.set(xm)
+            await self.cog.config.guild(self.guild).message_xp_cooldown.set(xm_cd)
+            
+            await self.cog.config.guild(self.guild).xp_per_voice_minute.set(xv)
+            await self.cog.config.guild(self.guild).voice_min_members.set(xv_min)
+            
+            await self.cog.config.guild(self.guild).counts_enabled.set(counts_on)
+            await self.cog.config.guild(self.guild).duels_enabled.set(duels_on)
+            await self.cog.config.guild(self.guild).survivor_enabled.set(surv_on)
+            await self.cog.config.guild(self.guild).messages_enabled.set(msg_on)
+            await self.cog.config.guild(self.guild).voice_enabled.set(voice_on)
+            
+            await interaction.response.send_message("✅ XP sources and amounts configured successfully.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Failed to parse inputs: {str(e)}", ephemeral=True)
+
+
+class RankingMasterResetModal(ui.Modal, title="MASTER RESET ALL XP"):
+    confirm = ui.TextInput(label="Type 'CONFIRM' to wipe all data", placeholder="CONFIRM")
+
+    def __init__(self, cog, guild):
+        super().__init__()
+        self.cog = cog
+        self.guild = guild
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if str(self.confirm).strip().upper() != "CONFIRM":
+            return await interaction.response.send_message("❌ Master reset aborted.", ephemeral=True)
+        await self.cog.config.clear_all_members(self.guild)
+        await interaction.response.send_message("⚠️ **MASTER RESET COMPLETE**: All member XP and level progress has been permanently deleted.", ephemeral=True)
+
             await self.cog.config.guild(self.guild).xp_per_duel_win.set(xd)
             await self.cog.config.guild(self.guild).xp_per_survivor_milestone.set(xs)
             await self.cog.config.guild(self.guild).xp_per_message.set(xm)

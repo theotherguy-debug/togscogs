@@ -136,6 +136,7 @@ class NetCount(commands.Cog):
             penalty_end_time=None,
             survivor_exile_end=None,
             has_survivor_license=False,
+            survivor_bypass=False,
             survivor_contributions=0,
             last_counted_streak_id=None,
             total_valid_counts=0,
@@ -298,18 +299,20 @@ class NetCount(commands.Cog):
             # 3. Minimum progression check
             min_progression = await self.config.guild(guild).survivor_min_counts_req()
             if min_progression > 0:
-                progression = await self.config.member(author).highest_progression()
-                if progression < min_progression:
-                    try:
-                        await message.delete()
-                    except discord.Forbidden:
-                        pass
-                    await channel.send(
-                        f"⚠️ {author.mention}, you need a highest progression score of at least **{min_progression}** to enter this node.\n"
-                        f"Your current highest score is: **{progression}**.",
-                        delete_after=5
-                    )
-                    return
+                bypass = await self.config.member(author).survivor_bypass()
+                if not bypass:
+                    progression = await self.config.member(author).highest_progression()
+                    if progression < min_progression:
+                        try:
+                            await message.delete()
+                        except discord.Forbidden:
+                            pass
+                        await channel.send(
+                            f"⚠️ {author.mention}, you need a highest progression score of at least **{min_progression}** to enter this node.\n"
+                            f"Your current highest score is: **{progression}**.",
+                            delete_after=5
+                        )
+                        return
 
         async with self.config.guild(guild).channels() as channels:
             if ch_id_str not in channels:
@@ -1317,6 +1320,58 @@ class NetCount(commands.Cog):
                 await ctx.send("ℹ️ **RECOUNT COMPLETE:** Database count is already fully synchronized with channel history. No new counts detected.")
 
     # --- LEADERBOARD & USER COMMANDS ---
+    @commands.hybrid_command(name="countstats", aliases=["cs", "mystats"])
+    async def countstats(self, ctx: commands.Context, member: Optional[discord.Member] = None):
+        """View counting statistics for yourself or another user."""
+        target = member or ctx.author
+        
+        data = await self.config.member(target).all()
+        valid = data.get("total_valid_counts", 0)
+        highest = data.get("highest_progression", 0)
+        ruined = data.get("times_ruined", 0)
+        has_license = data.get("has_survivor_license", False)
+        bypass = data.get("survivor_bypass", False)
+        
+        total_attempts = valid + ruined
+        accuracy = (valid / total_attempts * 100) if total_attempts > 0 else 0.0
+        
+        embed = discord.Embed(
+            title=f"📊 Counting Stats: {target.display_name}",
+            color=discord.Color.blue()
+        )
+        embed.set_thumbnail(url=target.display_avatar.url if target.display_avatar else None)
+        
+        desc = (
+            f"**Total Valid Counts:** `{valid}`\n"
+            f"**Highest Single Count:** `{highest}`\n"
+            f"**Times Ruined:** `{ruined}`\n"
+            f"**Accuracy:** `{accuracy:.1f}%`\n"
+        )
+        
+        if bypass:
+            desc += f"\n**Survivor Bypass:** `Active` 🛡️"
+        
+        survivor_exile_end = data.get("survivor_exile_end")
+        if survivor_exile_end and time.time() < survivor_exile_end:
+            remaining = int(survivor_exile_end - time.time())
+            h = remaining // 3600
+            m = (remaining % 3600) // 60
+            desc += f"\n**Survivor Exile:** `Active` ({h}h {m}m left) ⛔"
+            
+        penalty_end = data.get("penalty_end_time")
+        if penalty_end and time.time() < penalty_end:
+            remaining = int(penalty_end - time.time())
+            h = remaining // 3600
+            m = (remaining % 3600) // 60
+            desc += f"\n**Shame Penalty:** `Active` ({h}h {m}m left) 🔒"
+            
+        if has_license:
+            desc += f"\n\n🎫 **Survivor License Owner**"
+            
+        embed.description = desc
+        await ctx.send(embed=embed)
+
+
     @commands.hybrid_command(name="countlb", aliases=["clb", "scoreboard"])
     async def countlb(self, ctx: commands.Context):
         """View the sequence progression leaderboard (Highest single counts)."""
@@ -1865,6 +1920,37 @@ class NetCount(commands.Cog):
         else:
             await self.config.guild(guild).containment_role_id.set(role.id)
             await ctx.send(f"✅ Containment role set to {role.name}. Failing players will receive this role.")
+
+    @survivor.command(name="addplayer")
+    async def surv_addplayer(self, ctx: commands.Context, member: discord.Member):
+        """Grant a user bypass to the 100-count Survivor entry requirement."""
+        await self.config.member(member).survivor_bypass.set(True)
+        await ctx.send(f"✅ **Bypass Granted:** {member.mention} can now enter Survivor channels without meeting the count requirement.")
+
+    @survivor.command(name="removeplayer")
+    async def surv_removeplayer(self, ctx: commands.Context, member: discord.Member):
+        """Revoke a user's Survivor entry bypass."""
+        await self.config.member(member).survivor_bypass.set(False)
+        await ctx.send(f"✅ **Bypass Revoked:** {member.mention} must now meet the count requirement to enter Survivor channels.")
+
+    @survivor.command(name="listplayers")
+    async def surv_listplayers(self, ctx: commands.Context):
+        """List all users with a Survivor entry bypass."""
+        members_data = await self.config.all_members(ctx.guild)
+        bypassed = []
+        for m_id, data in members_data.items():
+            if data.get("survivor_bypass", False):
+                bypassed.append(f"<@{m_id}>")
+                
+        if not bypassed:
+            return await ctx.send("No users currently have a Survivor bypass.")
+            
+        embed = discord.Embed(
+            title="🛡️ Survivor Bypass List",
+            description=", ".join(bypassed),
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
 
     @survivor.command(name="config")
     async def surv_config(self, ctx: commands.Context):
