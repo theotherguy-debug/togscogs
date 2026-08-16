@@ -1817,26 +1817,6 @@ class RankingMasterResetModal(ui.Modal, title="MASTER RESET ALL XP"):
         await self.cog.config.clear_all_members(self.guild)
         await interaction.response.send_message("⚠️ **MASTER RESET COMPLETE**: All member XP and level progress has been permanently deleted.", ephemeral=True)
 
-            await self.cog.config.guild(self.guild).xp_per_duel_win.set(xd)
-            await self.cog.config.guild(self.guild).xp_per_survivor_milestone.set(xs)
-            await self.cog.config.guild(self.guild).xp_per_message.set(xm)
-            await self.cog.config.guild(self.guild).message_xp_cooldown.set(xm_cd)
-            await self.cog.config.guild(self.guild).xp_per_voice_minute.set(xv)
-            await self.cog.config.guild(self.guild).voice_min_members.set(xv_min)
-
-            sources_dict = {
-                "counts": counts_on,
-                "duels": duels_on,
-                "survivor": surv_on,
-                "messages": msg_on,
-                "voice": voice_on
-            }
-            await self.cog.config.guild(self.guild).xp_sources.set(sources_dict)
-
-            await interaction.response.send_message("✅ Ranking parameters and sources updated successfully.", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Failed: Invalid input format. Details: {e}", ephemeral=True)
-
 
 class RankingAddRoleModal(ui.Modal, title="Add Level Role Reward"):
     lvl = ui.TextInput(label="Target Level", default="10", placeholder="Level integer")
