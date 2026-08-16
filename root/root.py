@@ -1227,10 +1227,13 @@ class AutoCleanClearLogsModal(ui.Modal, title="Force Clear 30-Day Logs"):
                     count += 1
                 except Exception:
                     pass
-        await interaction.followup.send(f"🧹 Successfully wiped **{count}** registered log channels.", ephemeral=True)
-                ignored.append(target.id)
-                msg = f"Added role **{target.name}** to AutoClean whitelist."
-        await interaction.response.send_message(f"✅ {msg}", ephemeral=True)
+        
+        ignored.append(target.id)
+        msg = f"Added role **{target.name}** to AutoClean whitelist."
+        
+        # Combined status update sent via followup since response was already deferred
+        status_text = f"🧹 Successfully wiped **{count}** registered log channels.\n✅ {msg}"
+        await interaction.followup.send(status_text, ephemeral=True)
 
 
 # =====================================================================
