@@ -141,9 +141,12 @@ class CountingSubsystemView(ui.View):
         self.parent_view = parent_view
         self.selected_channel_id = None
         
-        menu = ChannelSelectMenu(self)
-        menu._populate_channels(guild)
-        self.add_item(menu)
+        c_menu = ChannelSelectMenu(self)
+        c_menu._populate_channels(guild)
+        self.add_item(c_menu)
+        
+        a_menu = CountingActionSelectMenu(self)
+        self.add_item(a_menu)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.author.id:
@@ -154,17 +157,16 @@ class CountingSubsystemView(ui.View):
     def get_embed(self) -> discord.Embed:
         desc = (
             f"```ansi\n"
-            f"{YELLOW}╔══════════════════════════════════════════════════════╗{RESET}\n"
-            f"{YELLOW}║            🔢 SEQUENCE COUNTING SUBSYSTEM            ║{RESET}\n"
-            f"{YELLOW}╚══════════════════════════════════════════════════════╝{RESET}\n\n"
-            f" Configure wagers, licenses, and survivor rules here.\n"
-            f" Select a channel from the dropdown to unlock actions.\n"
+            f"\u001b[36m╔══════════════════════════════════════════════════════╗\u001b[0m\n"
+            f"\u001b[36m║            🔢 COUNTING SUBSYSTEM COG                 ║\u001b[0m\n"
+            f"\u001b[36m╚══════════════════════════════════════════════════════╝\u001b[0m\n\n"
+            f" Manage counting channels, economy, rules, and rulesets.\n"
             f" Selected Channel ID: {self.selected_channel_id or 'None'}\n"
             f"```"
         )
-        return discord.Embed(title="Subsystem: Sequence Counting", description=desc, color=discord.Color.orange())
+        return discord.Embed(title="Subsystem: NetCount", description=desc, color=discord.Color.blue())
 
-    @ui.button(label="Toggle Counting", style=discord.ButtonStyle.primary, row=1)
+    @ui.button(label="Toggle Counting", style=discord.ButtonStyle.primary, row=2)
     async def toggle_counting(self, interaction: discord.Interaction, button: ui.Button):
         if not self.selected_channel_id:
             return await interaction.response.send_message("❌ Please select a channel first.", ephemeral=True)
@@ -179,14 +181,13 @@ class CountingSubsystemView(ui.View):
                 msg = f"Enabled counting in <#{ch_str}>."
         await interaction.response.send_message(f"✅ {msg}", ephemeral=True)
 
-    @ui.button(label="Toggle Survivor Mode", style=discord.ButtonStyle.primary, row=1)
+    @ui.button(label="Toggle Survivor Mode", style=discord.ButtonStyle.primary, row=2)
     async def toggle_survivor(self, interaction: discord.Interaction, button: ui.Button):
         if not self.selected_channel_id:
             return await interaction.response.send_message("❌ Please select a channel first.", ephemeral=True)
         guild = interaction.guild
         ch_str = str(self.selected_channel_id)
         
-        # Ensure it is at least an active counting channel
         channels = await self.cog.config.guild(guild).channels()
         if ch_str not in channels:
             async with self.cog.config.guild(guild).channels() as active_channels:
@@ -201,7 +202,7 @@ class CountingSubsystemView(ui.View):
                 msg = f"Enabled Survivor rules on <#{ch_str}> (Saves disabled, extreme stakes active)."
         await interaction.response.send_message(f"💀 {msg}", ephemeral=True)
 
-    @ui.button(label="Toggle Saves", style=discord.ButtonStyle.secondary, row=1)
+    @ui.button(label="Toggle Saves", style=discord.ButtonStyle.secondary, row=2)
     async def toggle_saves(self, interaction: discord.Interaction, button: ui.Button):
         if not self.selected_channel_id:
             return await interaction.response.send_message("❌ Please select a channel first.", ephemeral=True)
@@ -215,7 +216,7 @@ class CountingSubsystemView(ui.View):
             status = "ENABLED" if not current else "DISABLED"
         await interaction.response.send_message(f"🛡️ Saves set to **{status}** in <#{ch_str}>.", ephemeral=True)
 
-    @ui.button(label="Toggle Economy", style=discord.ButtonStyle.secondary, row=1)
+    @ui.button(label="Toggle Economy", style=discord.ButtonStyle.secondary, row=2)
     async def toggle_eco(self, interaction: discord.Interaction, button: ui.Button):
         if not self.selected_channel_id:
             return await interaction.response.send_message("❌ Please select a channel first.", ephemeral=True)
@@ -229,52 +230,9 @@ class CountingSubsystemView(ui.View):
             status = "ONLINE" if not current else "OFFLINE"
         await interaction.response.send_message(f"💰 Economy set to **{status}** in <#{ch_str}>.", ephemeral=True)
 
-    @ui.button(label="Set Current Count", style=discord.ButtonStyle.secondary, row=2)
-    async def set_count_btn(self, interaction: discord.Interaction, button: ui.Button):
-        if not self.selected_channel_id:
-            return await interaction.response.send_message("❌ Please select a channel first.", ephemeral=True)
-        modal = CountingSetCountModal(self.cog, self.selected_channel_id, interaction.guild)
-        await interaction.response.send_modal(modal)
-
-    @ui.button(label="Give Save Token", style=discord.ButtonStyle.secondary, row=2)
-    async def give_save_btn(self, interaction: discord.Interaction, button: ui.Button):
-        if not self.selected_channel_id:
-            return await interaction.response.send_message("❌ Please select a channel first.", ephemeral=True)
-        modal = CountingGiveSaveModal(self.cog, self.selected_channel_id, interaction.guild)
-        await interaction.response.send_modal(modal)
-
-    @ui.button(label="Set Save Price", style=discord.ButtonStyle.secondary, row=2)
-    async def set_save_price_btn(self, interaction: discord.Interaction, button: ui.Button):
-        if not self.selected_channel_id:
-            return await interaction.response.send_message("❌ Please select a channel first.", ephemeral=True)
-        modal = CountingSavePriceModal(self.cog, self.selected_channel_id, interaction.guild)
-        await interaction.response.send_modal(modal)
-
-    @ui.button(label="Set Prestige Target", style=discord.ButtonStyle.secondary, row=2)
-    async def prestige_btn(self, interaction: discord.Interaction, button: ui.Button):
-        if not self.selected_channel_id:
-            return await interaction.response.send_message("❌ Please select a channel first.", ephemeral=True)
-        modal = CountingPrestigeTargetModal(self.cog, self.selected_channel_id, interaction.guild)
-        await interaction.response.send_modal(modal)
-
-    @ui.button(label="Survivor Rules", style=discord.ButtonStyle.secondary, row=3)
-    async def set_rules(self, interaction: discord.Interaction, button: ui.Button):
-        modal = CountingRulesModal(self.cog, interaction.guild)
-        await interaction.response.send_modal(modal)
-
-    @ui.button(label="Global Shaming", style=discord.ButtonStyle.secondary, row=3)
-    async def set_shame(self, interaction: discord.Interaction, button: ui.Button):
-        modal = CountingShameModal(self.cog, interaction.guild)
-        await interaction.response.send_modal(modal)
-
     @ui.button(label="Pardon Member", style=discord.ButtonStyle.success, emoji="🕊️", row=3)
     async def pardon_user_btn(self, interaction: discord.Interaction, button: ui.Button):
         modal = CountingPardonUserModal(self.cog)
-        await interaction.response.send_modal(modal)
-
-    @ui.button(label="Survivor Bypass", style=discord.ButtonStyle.success, emoji="🛡️", row=3)
-    async def survivor_bypass_btn(self, interaction: discord.Interaction, button: ui.Button):
-        modal = CountingSurvivorBypassModal(self.cog)
         await interaction.response.send_modal(modal)
 
     @ui.button(label="View Stats", style=discord.ButtonStyle.primary, emoji="📊", row=3)
@@ -282,30 +240,86 @@ class CountingSubsystemView(ui.View):
         modal = CountingViewStatsModal(self.cog)
         await interaction.response.send_modal(modal)
 
-    @ui.button(label="Set Image Dir", style=discord.ButtonStyle.primary, emoji="📁", row=4)
-    async def set_image_dir_btn(self, interaction: discord.Interaction, button: ui.Button):
-        modal = CountingSetMilestoneDirModal(self.cog)
-        await interaction.response.send_modal(modal)
-
-    @ui.button(label="Scan Images", style=discord.ButtonStyle.secondary, emoji="🖼️", row=4)
-    async def scan_images_btn(self, interaction: discord.Interaction, button: ui.Button):
-        guild = interaction.guild
-        import os
-        milestone_dir = await self.cog.get_milestone_dir(guild)
-        if not os.path.isdir(milestone_dir):
-            await interaction.response.send_message(f"⚠️ Milestone directory not found: `{milestone_dir}`", ephemeral=True)
-            return
-        detected = await self.cog.scan_milestone_images(guild, milestone_dir)
-        if not detected:
-            await interaction.response.send_message(f"📁 Directory: `{milestone_dir}`\n🖼️ No milestone images detected. Name files as `<number>.png`.", ephemeral=True)
-            return
-        msg = f"📁 **Directory:** `{milestone_dir}`\n"
-        msg += f"🖼️ **Detected ({len(detected)}):**\n" + "\n".join(f"• Milestone **{n}**" for n in sorted(detected))
-        await interaction.response.send_message(msg, ephemeral=True)
-
     @ui.button(label="Main Menu", style=discord.ButtonStyle.danger, emoji="⬅️", row=4)
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.edit_message(embed=self.parent_view.get_main_embed(), view=self.parent_view)
+
+
+class CountingActionSelectMenu(ui.Select):
+    def __init__(self, parent_view):
+        self.parent_view = parent_view
+        options = [
+            discord.SelectOption(label="Set Current Count", value="set_count"),
+            discord.SelectOption(label="Give Save Token", value="give_save"),
+            discord.SelectOption(label="Set Save Price", value="save_price"),
+            discord.SelectOption(label="Set Prestige Target", value="prestige_target"),
+            discord.SelectOption(label="Survivor Rules", value="surv_rules"),
+            discord.SelectOption(label="Global Shaming", value="global_shaming"),
+            discord.SelectOption(label="Set Image Dir", value="image_dir"),
+            discord.SelectOption(label="Scan Images", value="scan_images"),
+            discord.SelectOption(label="Set Streak Multiplier", value="setmultiplier"),
+            discord.SelectOption(label="Set Base Reward", value="setbasereward"),
+            discord.SelectOption(label="Add Auto-Role", value="addautorole"),
+            discord.SelectOption(label="Remove Auto-Role", value="removeautorole"),
+            discord.SelectOption(label="Add Milestone", value="addmilestone"),
+            discord.SelectOption(label="Remove Milestone", value="removemilestone"),
+            discord.SelectOption(label="Toggle Auto-Milestones", value="toggleauto"),
+            discord.SelectOption(label="Reset Penalties (Loss)", value="resetloss"),
+            discord.SelectOption(label="Reset Vault/Eco", value="reseteco"),
+            discord.SelectOption(label="Recount Channel", value="recount"),
+            discord.SelectOption(label="Survivor Containment Time", value="surv_cont"),
+            discord.SelectOption(label="Survivor Min Counts", value="surv_min"),
+            discord.SelectOption(label="Survivor Containment Role", value="surv_role"),
+            discord.SelectOption(label="List Survivor Bypass", value="surv_list"),
+            discord.SelectOption(label="View Survivor Config", value="surv_conf"),
+            discord.SelectOption(label="Trigger Prestige", value="prestige"),
+            discord.SelectOption(label="View Milestones", value="viewmilestones"),
+        ]
+        super().__init__(placeholder="Advanced Config Actions...", min_values=1, max_values=1, options=options, row=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        v = self.values[0]
+        pv = self.parent_view
+        cog = pv.cog
+        guild = interaction.guild
+        chid = pv.selected_channel_id
+        
+        if v in ["set_count", "give_save", "save_price", "prestige_target", "prestige", "recount"] and not chid:
+            return await interaction.response.send_message("❌ This action requires selecting a channel first.", ephemeral=True)
+            
+        if v == "set_count": await interaction.response.send_modal(CountingSetCountModal(cog, chid, guild))
+        elif v == "give_save": await interaction.response.send_modal(CountingGiveSaveModal(cog, chid, guild))
+        elif v == "save_price": await interaction.response.send_modal(CountingSavePriceModal(cog, chid, guild))
+        elif v == "prestige_target": await interaction.response.send_modal(CountingPrestigeTargetModal(cog, chid, guild))
+        elif v == "surv_rules": await interaction.response.send_modal(CountingRulesModal(cog, guild))
+        elif v == "global_shaming": await interaction.response.send_modal(CountingShameModal(cog, guild))
+        elif v == "image_dir": await interaction.response.send_modal(CountingSetMilestoneDirModal(cog))
+        elif v == "scan_images":
+            import os
+            m_dir = await cog.get_milestone_dir(guild)
+            if not os.path.isdir(m_dir): return await interaction.response.send_message(f"⚠️ Milestone directory not found: `{m_dir}`", ephemeral=True)
+            detected = await cog.scan_milestone_images(guild, m_dir)
+            if not detected: return await interaction.response.send_message(f"🖼️ No milestone images detected in `{m_dir}`.", ephemeral=True)
+            msg = f"📁 **Directory:** `{m_dir}`\n🖼️ **Detected ({len(detected)}):**\n" + "\n".join(f"• Milestone **{n}**" for n in sorted(detected))
+            await interaction.response.send_message(msg, ephemeral=True)
+            
+        elif v == "setmultiplier": await interaction.response.send_message("Execute `/counting setmultiplier <true/false>` to toggle streak multipliers.", ephemeral=True)
+        elif v == "setbasereward": await interaction.response.send_message("Execute `/counting setbasereward <amount>` to set base credit reward.", ephemeral=True)
+        elif v == "addautorole": await interaction.response.send_message("Execute `/counting addautorole <total_counts> <role>` to add a threshold reward.", ephemeral=True)
+        elif v == "removeautorole": await interaction.response.send_message("Execute `/counting removeautorole <total_counts>` to remove it.", ephemeral=True)
+        elif v == "addmilestone": await interaction.response.send_message("Execute `/counting addmilestone <number> <value> [channel]`.", ephemeral=True)
+        elif v == "removemilestone": await interaction.response.send_message("Execute `/counting removemilestone <number> [channel]`.", ephemeral=True)
+        elif v == "viewmilestones": await interaction.response.send_message("Execute `/counting viewmilestones [channel]`.", ephemeral=True)
+        elif v == "toggleauto": await interaction.response.send_message("Execute `/counting toggleautomilestones <true/false>`.", ephemeral=True)
+        elif v == "resetloss": await interaction.response.send_message("Execute `/counting resetloss [member]` to wipe penalties.", ephemeral=True)
+        elif v == "reseteco": await interaction.response.send_message("Execute `/counting reseteco` to wipe jackpot and survivor licenses.", ephemeral=True)
+        elif v == "recount": await interaction.response.send_message("Execute `/counting recount [channel]` to resync the database.", ephemeral=True)
+        elif v == "surv_cont": await interaction.response.send_message("Execute `/counting survivor setcontainment <hours>`.", ephemeral=True)
+        elif v == "surv_min": await interaction.response.send_message("Execute `/counting survivor setmincounts <counts>`.", ephemeral=True)
+        elif v == "surv_role": await interaction.response.send_message("Execute `/counting survivor setrole [role]`.", ephemeral=True)
+        elif v == "surv_list": await interaction.response.send_message("Execute `/counting survivor listplayers`.", ephemeral=True)
+        elif v == "surv_conf": await interaction.response.send_message("Execute `/counting survivor config`.", ephemeral=True)
+        elif v == "prestige": await interaction.response.send_message("Execute `/counting prestige [channel]`.", ephemeral=True)
 
 
 class ChannelSelectMenu(ui.Select):
@@ -714,7 +728,24 @@ class NicknameSubsystemView(ui.View):
                     pass
         await interaction.followup.send(f"✅ Reset {count} user nicknames successfully.", ephemeral=True)
 
-    @ui.button(label="Main Menu", style=discord.ButtonStyle.danger, emoji="⬅️", row=2)
+    @ui.button(label="System Status", style=discord.ButtonStyle.secondary, emoji="📊", row=2)
+    async def system_status(self, interaction: discord.Interaction, button: ui.Button):
+        enabled = await self.cog.config.guild(interaction.guild).enabled()
+        theme = await self.cog.config.guild(interaction.guild).theme()
+        patterns_count = len(self.cog.patterns)
+        
+        status_msg = (
+            f"**SysNames Configuration Status**\n"
+            f"• Auto-Format on Join: `{'ENABLED' if enabled else 'DISABLED'}`\n"
+            f"• Active Theme: `{theme}`\n"
+            f"• Total Base Patterns: `{patterns_count}`\n\n"
+            f"**Preview of Active Theme Formatting:**\n"
+            f"• User 'Alice' -> `{self.cog._generate_styled_name('Alice', theme)}`\n"
+            f"• User 'Bob123' -> `{self.cog._generate_styled_name('Bob123', theme)}`"
+        )
+        await interaction.response.send_message(status_msg, ephemeral=True)
+
+    @ui.button(label="Main Menu", style=discord.ButtonStyle.danger, emoji="⬅️", row=3)
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.edit_message(embed=self.parent_view.get_main_embed(), view=self.parent_view)
 
@@ -800,9 +831,89 @@ class HackingSubsystemView(ui.View):
         status = "ACTIVE / BLOCKING BREACHES" if self.cog.lockdown_active else "OFFLINE / NORMAL"
         await interaction.response.send_message(f"⚠️ Global lockdown state set to: **{status}**.", ephemeral=True)
 
-    @ui.button(label="Main Menu", style=discord.ButtonStyle.danger, emoji="⬅️", row=1)
+    @ui.button(label="Trigger DDoS", style=discord.ButtonStyle.danger, row=1)
+    async def trigger_ddos(self, interaction: discord.Interaction, button: ui.Button):
+        modal = HackingDDoSModal(self.cog)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Trigger Purge", style=discord.ButtonStyle.danger, row=1)
+    async def trigger_purge(self, interaction: discord.Interaction, button: ui.Button):
+        modal = HackingPurgeModal(self.cog)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Launch Terminal", style=discord.ButtonStyle.secondary, row=2)
+    async def launch_terminal(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_message("Execute `/terminalui` or `!terminalui` to launch your HUD.", ephemeral=True)
+
+    @ui.button(label="Launch Breach", style=discord.ButtonStyle.secondary, row=2)
+    async def launch_breach(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_message("Execute `/breachui <target>` to initiate an attack.", ephemeral=True)
+
+    @ui.button(label="Launch Stats", style=discord.ButtonStyle.secondary, row=2)
+    async def launch_stats(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_message("Execute `/statsui` to view your operator card.", ephemeral=True)
+
+    @ui.button(label="Launch Scan", style=discord.ButtonStyle.secondary, row=3)
+    async def launch_scan(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_message("Execute `/scanui` to discover vulnerable targets.", ephemeral=True)
+
+    @ui.button(label="Launch Leaderboard", style=discord.ButtonStyle.secondary, row=3)
+    async def launch_leaderboard(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_message("Execute `/leaderboardui` to view top operators.", ephemeral=True)
+
+    @ui.button(label="Repair Firewall", style=discord.ButtonStyle.secondary, row=3)
+    async def repair_fw(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_message("Execute `/repairui <target>` to restore an operative's firewall.", ephemeral=True)
+
+    @ui.button(label="Main Menu", style=discord.ButtonStyle.danger, emoji="⬅️", row=4)
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.edit_message(embed=self.parent_view.get_main_embed(), view=self.parent_view)
+
+class HackingDDoSModal(ui.Modal, title="Global Network DDoS"):
+    confirm = ui.TextInput(label="Type 'DDOS' to confirm", placeholder="DDOS")
+
+    def __init__(self, cog):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if str(self.confirm).strip().upper() != "DDOS":
+            return await interaction.response.send_message("❌ DDoS aborted.", ephemeral=True)
+            
+        await interaction.response.defer(ephemeral=True)
+        import random
+        users = await self.cog.config.all_users()
+        damaged = 0
+        for uid, data in users.items():
+            current = data.get("firewall", 100)
+            if current > 1:
+                dmg = random.randint(10, 30)
+                new_val = max(1, current - dmg)
+                await self.cog.config.user_from_id(uid).firewall.set(new_val)
+                damaged += 1
+                
+        await interaction.followup.send(f"⚠️ **DDoS EXECUTED**: {damaged} operative firewalls sustained heavy damage.", ephemeral=True)
+
+class HackingPurgeModal(ui.Modal, title="Global Firewall Purge"):
+    confirm = ui.TextInput(label="Type 'PURGE' to confirm", placeholder="PURGE")
+
+    def __init__(self, cog):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if str(self.confirm).strip().upper() != "PURGE":
+            return await interaction.response.send_message("❌ Purge aborted.", ephemeral=True)
+            
+        await interaction.response.defer(ephemeral=True)
+        users = await self.cog.config.all_users()
+        purged = 0
+        for uid, data in users.items():
+            if data.get("firewall", 100) > 1:
+                await self.cog.config.user_from_id(uid).firewall.set(1)
+                purged += 1
+                
+        await interaction.followup.send(f"☢️ **GLOBAL PURGE EXECUTED**: {purged} operative firewalls reduced to critical (1%).", ephemeral=True)
 
 
 # =====================================================================
@@ -1203,7 +1314,7 @@ class WellbeingSubsystemView(ui.View):
         if not alerts:
             return await interaction.followup.send("⚠️ No alerts configured in Vital database.", ephemeral=True)
             
-        import random
+        import random, asyncio
         alert = random.choice(alerts)
         formatted = self.cog.format_alert(alert)
         msg = await channel.send(f"```ansi\n{formatted}\n```")
@@ -1213,10 +1324,113 @@ class WellbeingSubsystemView(ui.View):
         asyncio.create_task(self.cog.delete_after(msg, 300))
         await interaction.followup.send("✅ Test alert dispatched to channel (will self-delete in 5 minutes).", ephemeral=True)
 
-    @ui.button(label="Main Menu", style=discord.ButtonStyle.danger, emoji="⬅️", row=2)
+    @ui.button(label="Add Custom Alert", style=discord.ButtonStyle.primary, row=2)
+    async def add_custom_alert(self, interaction: discord.Interaction, button: ui.Button):
+        modal = WellbeingAddAlertModal(self.cog)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Remove Custom Alert", style=discord.ButtonStyle.danger, row=2)
+    async def remove_custom_alert(self, interaction: discord.Interaction, button: ui.Button):
+        modal = WellbeingRemoveAlertModal(self.cog)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Targeted Test Alert", style=discord.ButtonStyle.secondary, row=3)
+    async def targeted_test(self, interaction: discord.Interaction, button: ui.Button):
+        if not self.selected_channel_id:
+            return await interaction.response.send_message("❌ Please select a channel first.", ephemeral=True)
+        modal = WellbeingTargetedTestModal(self.cog, self.bot.get_channel(int(self.selected_channel_id)))
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="List Alerts", style=discord.ButtonStyle.secondary, row=3)
+    async def list_alerts(self, interaction: discord.Interaction, button: ui.Button):
+        custom_alerts = await self.cog.config.custom_alerts()
+        msg = f"**System Alerts Overview**\n"
+        msg += f"• Hardcoded Core Alerts: `{len(self.cog.alerts)}`\n"
+        msg += f"• JSON File Alerts: `{len(self.cog.json_alerts)}`\n"
+        msg += f"• Custom DB Alerts: `{len(custom_alerts)}`\n"
+        
+        if custom_alerts:
+            msg += f"\n**Custom DB Alerts:**\n"
+            for i, a in enumerate(custom_alerts, 1):
+                msg += f"`{i}.` {a[:50]}...\n"
+                
+        await interaction.response.send_message(msg, ephemeral=True)
+
+    @ui.button(label="Reload JSON", style=discord.ButtonStyle.secondary, row=3)
+    async def reload_json(self, interaction: discord.Interaction, button: ui.Button):
+        await self.cog.load_alerts()
+        await interaction.response.send_message(f"✅ Reloaded `alerts.json`. Now holding **{len(self.cog.json_alerts)}** JSON alerts.", ephemeral=True)
+
+    @ui.button(label="Main Menu", style=discord.ButtonStyle.danger, emoji="⬅️", row=4)
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.edit_message(embed=self.parent_view.get_main_embed(), view=self.parent_view)
 
+class WellbeingAddAlertModal(ui.Modal, title="Add Custom Wellbeing Alert"):
+    text = ui.TextInput(label="Alert Content", style=discord.TextStyle.paragraph, placeholder="Type the alert message here...")
+
+    def __init__(self, cog):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction):
+        content = str(self.text).strip()
+        if not content:
+            return await interaction.response.send_message("❌ Alert cannot be empty.", ephemeral=True)
+            
+        async with self.cog.config.custom_alerts() as alerts:
+            alerts.append(content)
+            
+        await interaction.response.send_message(f"✅ Added new custom alert. Total DB alerts: **{len(alerts)}**.", ephemeral=True)
+
+class WellbeingRemoveAlertModal(ui.Modal, title="Remove Custom Alert"):
+    index = ui.TextInput(label="Alert Index (from List Alerts)", placeholder="E.g. 1")
+
+    def __init__(self, cog):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            idx = int(str(self.index)) - 1
+            async with self.cog.config.custom_alerts() as alerts:
+                if 0 <= idx < len(alerts):
+                    removed = alerts.pop(idx)
+                    await interaction.response.send_message(f"✅ Removed alert: `{removed[:50]}...`", ephemeral=True)
+                else:
+                    await interaction.response.send_message("❌ Invalid index. Please check the List Alerts button.", ephemeral=True)
+        except ValueError:
+            await interaction.response.send_message("❌ Input must be a valid integer index.", ephemeral=True)
+
+class WellbeingTargetedTestModal(ui.Modal, title="Targeted Test Alert"):
+    threat = ui.TextInput(label="Threat Name (Optional)", placeholder="E.g. SYSTEM_FAILURE", required=False)
+
+    def __init__(self, cog, channel):
+        super().__init__()
+        self.cog = cog
+        self.channel = channel
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not self.channel:
+            return await interaction.response.send_message("❌ Channel not found.", ephemeral=True)
+            
+        await interaction.response.defer(ephemeral=True)
+        
+        alerts = list(self.cog.json_alerts)
+        custom_alerts = await self.cog.config.custom_alerts()
+        alerts.extend(custom_alerts)
+        
+        if not alerts:
+            return await interaction.followup.send("⚠️ No alerts available.", ephemeral=True)
+            
+        import random, asyncio
+        alert = random.choice(alerts)
+        threat_name = str(self.threat).strip() if self.threat.value else None
+        
+        formatted = self.cog.format_alert(alert, threat_name=threat_name)
+        msg = await self.channel.send(f"```ansi\n{formatted}\n```")
+        
+        asyncio.create_task(self.cog.delete_after(msg, 300))
+        await interaction.followup.send(f"✅ Targeted test dispatched to <#{self.channel.id}>.", ephemeral=True)
 
 class WellbeingChannelSelectMenu(ui.Select):
     def __init__(self, parent_view):
