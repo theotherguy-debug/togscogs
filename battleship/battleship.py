@@ -791,36 +791,8 @@ class HackingBattleship(commands.Cog):
         session.phase = "playing"
         session.turn = session.player1.id
 
-        # Show both setups to the channel before battle begins
-        p1_board = session.boards[session.player1.id]
-        p1_name = session.player1.display_name
-
-        embed1 = make_single_grid_embed(
-            p1_board.render_own(), p1_name,
-            title=f"🛡️ {p1_name}'s Server Layout",
-            color=discord.Color.blue(),
-        )
-        await session.channel.send(embed=embed1)
-
-        if session.is_bot:
-            bot_board = session.boards[0]
-            embed_bot = make_single_grid_embed(
-                bot_board.render_own(), "🤖 Bot AI",
-                title="🛡️ Bot AI's Server Layout",
-                color=discord.Color.red(),
-            )
-            await session.channel.send(embed=embed_bot)
-        elif session.player2:
-            p2_board = session.boards[session.player2.id]
-            p2_name = session.player2.display_name
-            embed2 = make_single_grid_embed(
-                p2_board.render_own(), p2_name,
-                title=f"🛡️ {p2_name}'s Server Layout",
-                color=discord.Color.red(),
-            )
-            await session.channel.send(embed=embed2)
-
-        # Battle starts
+        # Keep deployments hidden from the other player during active combat.
+        # Board layouts are only shown privately via the per-user "My Board" action.
         turn_name = session.player1.display_name
 
         embed = discord.Embed(
@@ -871,18 +843,11 @@ class HackingBattleship(commands.Cog):
             log = f"[EXPLOIT → {target}]: {result}"
             color = discord.Color.dark_grey()
 
-        # Show updated boards to the channel
-        attacker_board = session.boards[attacker_id]
+        # Keep combat private: only send the result log, not the hidden board layout.
         embed_report = discord.Embed(
             title="⚔️ EXPLOIT REPORT",
             description=f"```\n{log}\n```",
             color=color,
-        )
-        # Show defender's board (with hits visible) and attacker's tracking view
-        embed_report.add_field(
-            name="Target's Network (revealed hits)",
-            value=render_grid_text(defender_board.render_reveal()),
-            inline=False,
         )
         await session.channel.send(embed=embed_report)
 
@@ -945,16 +910,11 @@ class HackingBattleship(commands.Cog):
             log = f"[🤖 BOT → {target}]: {result}"
             color = discord.Color.dark_grey()
 
-        # Show the bot's attack with updated board
+        # Keep the bot's target board hidden from the human player during combat.
         embed = discord.Embed(
             title="🤖 BOT EXPLOIT REPORT",
             description=f"```\n{log}\n```",
             color=color,
-        )
-        embed.add_field(
-            name=f"{session.player1.display_name}'s Network (damage taken)",
-            value=render_grid_text(player_board.render_own()),
-            inline=False,
         )
         await session.channel.send(embed=embed)
 
