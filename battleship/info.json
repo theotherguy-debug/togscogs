@@ -1,0 +1,12 @@
+{
+    "author": ["Th3OTh3rGuy", "Antigravity"],
+    "name": "battleship",
+    "short": "Hacking-themed Battleship with Elo, economy, and betting.",
+    "description": "A hacking-themed Battleship game cog. Players place servers on a grid and launch exploits to sink opponents. Supports PvP and PvE (random AI). Includes real Elo ratings, win/loss leaderboard, economy rewards, and optional betting via Red's built-in bank.",
+    "tags": ["game", "battleship", "hacking", "pvp", "economy", "elo", "betting"],
+    "min_bot_version": "3.5.0",
+    "requirements": [],
+    "hidden": false,
+    "disabled": false,
+    "end_user_data_statement": "This cog stores Discord User IDs to track game statistics (wins, losses, Elo rating). Data can be deleted upon user request."
+}

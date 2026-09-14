@@ -1,2 +1,4 @@
-# hacking_battleship package
-# Enables Red‑DiscordBot to load the cog from Togscogs.
+from .battleship import HackingBattleship
+
+async def setup(bot):
+    await bot.add_cog(HackingBattleship(bot))
