@@ -1,28 +1,47 @@
-# 🏥 vital
+# Vital — Wellbeing Alerts
 
-A utility that sends cheekily hostile, terminal-themed well-being reminders to designated channels at randomized intervals. The alerts automatically delete after a specified period to keep channels clean.
-
----
-
-## Features
-- **Variable Broadcast Loop**: Alerts are sent on a random timer (e.g. every 3 to 6 hours) to prevent predictable spam.
-- **Terminal Aesthetics**: Reminders are formatted with simulated "System Compromise" ASCII boxes warning about dehydration, poor posture, screen staring, or lack of hygiene.
-- **Self-Deleting Warnings**: Dispatched alerts automatically delete themselves after 24 hours.
-- **Configurable Alerts**: Combines built-in messages, external `alerts.json` lists, and custom server-specific alerts.
+Periodically broadcasts randomised wellbeing reminders, healthy tips, and mental wellness checks to configured channels. Designed to keep operatives balanced during long gaming and moderation sessions. Alerts are styled in ANSI terminal format and self-delete to keep channels clean.
 
 ---
 
-## Player Commands
-*No player-level command interface registered. Wellbeing loops are managed globally by administrators.*
+## 🚀 Setup & Installation
+
+1. Load the cog:
+   ```
+   [p]load vital
+   ```
+2. Add alert channels:
+   - **GUI**: Open `/root` → **Wellbeing Alerts** → select a channel → **Add Alert Channel**
+   - **Text**: `[p]vital add <channel>`
+3. Optionally configure timing:
+   - **GUI**: `/root` → **Wellbeing Alerts** → **Set Broadcast Interval**
+   - **Text**: `[p]vital interval <min_hours> <max_hours>`
 
 ---
 
-## Administrator Commands
-Require **Manage Guild** or **Administrator** permissions.
+## ⌨️ Admin Commands
 
-*   **`[p]system addchannel`** — Adds the current channel to wellbeing alert broadcasts.
-*   **`[p]system removechannel`** — Removes the current channel from broadcasts.
-*   **`[p]system interval <min_hours> <max_hours>`** — Sets random broadcast timer boundaries.
-*   **`[p]system addalert <text>`** — Appends a custom text alert.
-*   **`[p]system test`** — Instantly triggers a test reminder in the channel (self-deletes in 5 minutes).
-*   **`[p]root`** (or `/root`) — Configure wellbeing channels and broadcast intervals via the Mainframe dashboard.
+| Command | Description |
+|:---|:---|
+| `[p]vital add <channel>` | Add a channel to receive randomised wellbeing broadcasts |
+| `[p]vital interval <min_hours> <max_hours>` | Set bounds for randomised alert timing (default: 3–6 hours) |
+
+---
+
+## 🛠️ Admin Controls (via `/root` → Wellbeing Alerts)
+
+| Button | Description |
+|:---|:---|
+| **Add Alert Channel** | Register the selected channel to receive wellbeing broadcasts |
+| **Remove Alert Channel** | Unregister a channel from broadcasts |
+| **Set Broadcast Interval** | Configure minimum and maximum hours between random alerts |
+| **Broadcast Test Alert** | Send a single test alert to the selected channel (self-deletes in 5 minutes) |
+
+---
+
+## 🔧 How It Works
+
+1. The cog maintains a pool of built-in wellness alerts (loaded from `alerts.json`) plus any custom alerts added by admins
+2. At random intervals within the configured bounds, it selects a random alert and broadcasts it
+3. Alerts are formatted in ANSI terminal styling to match the cyberpunk aesthetic
+4. A history buffer prevents the same alert from appearing back-to-back

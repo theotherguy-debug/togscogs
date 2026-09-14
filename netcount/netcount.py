@@ -374,6 +374,17 @@ class NetCount(commands.Cog):
                 except Exception:
                     pass
 
+            # Milestone Bonus
+            if expected_number % 100 == 0:
+                try:
+                    bonus = 1000 * (expected_number // 100)
+                    await bank.deposit_credits(author, bonus)
+                    if channel:
+                        curr = await bank.get_currency_name(guild)
+                        await channel.send(f"🎉 **MILESTONE BONUS:** {author.mention} received **{bonus} {curr}** for reaching {expected_number}!")
+                except Exception:
+                    pass
+
             # If Survivor channel, track contributions
             if is_survivor:
                 streak_id = ch_data.get("streak_id")

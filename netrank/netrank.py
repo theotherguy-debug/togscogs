@@ -11,7 +11,7 @@ from discord import ui
 RED = "\u001b[1;31m"
 GREEN = "\u001b[1;32m"
 YELLOW = "\u001b[1;33m"
-TEAL = "\u001b[1;36m"
+CYAN = "\u001b[1;36m"
 WHITE = "\u001b[1;37m"
 DARK_GRAY = "\u001b[1;30m"
 RESET = "\u001b[0m"
@@ -42,7 +42,8 @@ class NetRank(commands.Cog):
             "voice_min_members": 2,  # Minimum members needed to earn XP
             "level_up_channel_id": None,
             "level_roles": {},  # str(level) -> role_id
-            "rank_enabled": True
+            "rank_enabled": True,
+            "credits_per_level": 500
         }
 
         default_member = {
@@ -151,11 +152,24 @@ class NetRank(commands.Cog):
 
         # 2. Prepare announcement text
         tier = self.get_rank_tier(level)
+        
+        # Give Economy Reward
+        credit_reward = 0
+        try:
+            credits_per_level = await self.config.guild(guild).credits_per_level()
+            if credits_per_level > 0:
+                credit_reward = level * credits_per_level
+                await bank.deposit_credits(member, credit_reward)
+                currency = await bank.get_currency_name(guild)
+                assigned_role_msg += f"\n💰 **Bonus:** {credit_reward:,} {currency} deposited to bank."
+        except Exception:
+            pass
+
         announcement_desc = (
             f"```ansi\n"
-            f"{TEAL}╔══════════════════════════════════════════════════════╗{RESET}\n"
-            f"{TEAL}║             🟢 SYSTEM ELEVATION DETECTED             ║{RESET}\n"
-            f"{TEAL}╚══════════════════════════════════════════════════════╝{RESET}\n\n"
+            f"{CYAN}╔══════════════════════════════════════════════════════╗{RESET}\n"
+            f"{CYAN}║             🟢 SYSTEM ELEVATION DETECTED             ║{RESET}\n"
+            f"{CYAN}╚══════════════════════════════════════════════════════╝{RESET}\n\n"
             f" Operative {WHITE}{member.display_name}{RESET} has bypassed mainframe limits!\n"
             f" New Cleared Level: {GREEN}{level}{RESET}\n"
             f" Security Cleared Class: {YELLOW}{tier}{RESET}\n"
@@ -391,15 +405,15 @@ class NetRank(commands.Cog):
 
         card_desc = (
             f"```ansi\n"
-            f"{TEAL}╔══════════════════════════════════════════════════════╗{RESET}\n"
-            f"{TEAL}║               SYSTEM OPERATIVE DOS: 4.1              ║{RESET}\n"
-            f"{TEAL}╚══════════════════════════════════════════════════════╝{RESET}\n\n"
+            f"{CYAN}╔══════════════════════════════════════════════════════╗{RESET}\n"
+            f"{CYAN}║               SYSTEM OPERATIVE DOS: 4.1              ║{RESET}\n"
+            f"{CYAN}╚══════════════════════════════════════════════════════╝{RESET}\n\n"
             f"  OPERATIVE:   {WHITE}{member.name}#{member.discriminator}{RESET}\n"
             f"  ACCESS LVL:  {GREEN}{current_level}{RESET} [{YELLOW}{tier}{RESET}]\n"
-            f"  GLOBAL RANK: {TEAL}#{user_rank if user_rank > 0 else 'N/A'}{RESET} / {total_players}\n\n"
+            f"  GLOBAL RANK: {CYAN}#{user_rank if user_rank > 0 else 'N/A'}{RESET} / {total_players}\n\n"
             f"  SYSTEM INDEX PROGRESSION:\n"
             f"  XP: {GREEN}{current_xp:,}{RESET} / {WHITE}{next_lvl_xp_start:,}{RESET} [{percentage:.1f}%]\n"
-            f"  {TEAL}[{GREEN}{bar}{TEAL}]{RESET}\n"
+            f"  {CYAN}[{GREEN}{bar}{CYAN}]{RESET}\n"
             f"```"
         )
 
@@ -464,9 +478,9 @@ class NetRank(commands.Cog):
 
         desc = (
             f"```ansi\n"
-            f"{TEAL}╔══════════════════════════════════════════════════════╗{RESET}\n"
-            f"{TEAL}║            SERVER XP OPERATIVE LEADERBOARD           ║{RESET}\n"
-            f"{TEAL}╚══════════════════════════════════════════════════════╝{RESET}\n\n"
+            f"{CYAN}╔══════════════════════════════════════════════════════╗{RESET}\n"
+            f"{CYAN}║            SERVER XP OPERATIVE LEADERBOARD           ║{RESET}\n"
+            f"{CYAN}╚══════════════════════════════════════════════════════╝{RESET}\n\n"
             f"  Rank  Operative                 Level     Decrypted XP\n"
             + "\n".join(leaderboard_lines) +
             f"\n```"
@@ -530,6 +544,14 @@ class NetRank(commands.Cog):
         else:
             await self.config.guild(ctx.guild).level_up_channel_id.set(None)
             await ctx.send("✅ Level-up broadcast channel cleared. Notifications will only appear locally.")
+
+    @ranking.command(name="setlevelcredits")
+    async def ranking_setlevelcredits(self, ctx: commands.Context, amount: int):
+        """Set the amount of credits rewarded per level (e.g. 500 means Level 5 gives 2500 credits)."""
+        if amount < 0:
+            return await ctx.send("❌ Amount cannot be negative.")
+        await self.config.guild(ctx.guild).credits_per_level.set(amount)
+        await ctx.send(f"✅ Level-up rewards configured: **{amount} credits** per level.")
 
     @ranking.command(name="roleadd")
     async def ranking_roleadd(self, ctx: commands.Context, level: int, role: discord.Role):

@@ -4,9 +4,31 @@ import logging
 import random
 from pathlib import Path
 import discord
-from redbot.core import commands, Config
+from discord import ui
+from redbot.core import commands, Config, bank
 
 log = logging.getLogger("red.WellBeingReminders")
+
+
+class VitalAcknowledgeView(ui.View):
+    def __init__(self, bot):
+        super().__init__(timeout=86400) # 24h timeout
+        self.bot = bot
+        self.acknowledged_users = set()
+        
+    @ui.button(label="Acknowledge Check-In", style=discord.ButtonStyle.success, emoji="✅")
+    async def ack_btn(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id in self.acknowledged_users:
+            return await interaction.response.send_message("❌ You have already collected your wellbeing stipend for this check-in.", ephemeral=True)
+            
+        self.acknowledged_users.add(interaction.user.id)
+        stipend = 100
+        try:
+            await bank.deposit_credits(interaction.user, stipend)
+            currency = await bank.get_currency_name(interaction.guild)
+            await interaction.response.send_message(f"✅ **HEALTH PROTOCOL ACKNOWLEDGED:** You received a **{stipend} {currency}** stipend. Stay healthy, operative.", ephemeral=True)
+        except Exception:
+            await interaction.response.send_message("✅ Health protocol acknowledged.", ephemeral=True)
 
 class Vital(commands.Cog):
     """System terminal-style automated reminders with anti-duplication."""
@@ -205,7 +227,8 @@ class Vital(commands.Cog):
                     if not channel:
                         continue
                     try:
-                        msg = await channel.send(embed=embed)
+                        view = VitalAcknowledgeView(self.bot)
+                        msg = await channel.send(embed=embed, view=view)
                         asyncio.create_task(self.delete_after(msg))
                     except discord.Forbidden:
                         continue
@@ -332,7 +355,7 @@ class Vital(commands.Cog):
             
             if matched:
                 embed = self.build_alert_embed(matched)
-                msg = await ctx.send(embed=embed)
+                msg = await ctx.send(embed=embed, view=VitalAcknowledgeView(self.bot))
                 asyncio.create_task(self.delete_after(msg, 300))
                 if ctx.interaction is None: 
                     asyncio.create_task(self.delete_after(ctx.message, 300))
@@ -341,7 +364,7 @@ class Vital(commands.Cog):
         else:
             payload = await self.get_random_message()
             embed = self.build_alert_embed(payload)
-            msg = await ctx.send(embed=embed)
+            msg = await ctx.send(embed=embed, view=VitalAcknowledgeView(self.bot))
             asyncio.create_task(self.delete_after(msg, 300))
             if ctx.interaction is None: 
                 asyncio.create_task(self.delete_after(ctx.message, 300))
