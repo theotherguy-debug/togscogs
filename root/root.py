@@ -1754,7 +1754,7 @@ class RankingConfigureXPModal(ui.Modal, title="Configure XP Sources & Amounts"):
     xp_surv = ui.TextInput(label="XP per Survivor Milestone", default="500", placeholder="Integer")
     xp_msg = ui.TextInput(label="XP per Msg / Cooldown (sec)", default="5, 60", placeholder="Comma separated, e.g. 5, 60")
     xp_voice = ui.TextInput(label="XP per VC Minute / Min Members", default="2, 2", placeholder="Comma separated, e.g. 2, 2")
-    sources = ui.TextInput(label="Enable Sources (counts, duels, surv, msg, voice)", default="yes, yes, yes, no, yes", placeholder="Yes/No comma separated")
+    sources = ui.TextInput(label="XP sources (counts, duels, surv, msg, voice)", default="yes, yes, yes, no, yes", placeholder="Yes/No comma separated")
 
     def __init__(self, cog, guild):
         super().__init__()
