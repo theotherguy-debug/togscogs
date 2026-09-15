@@ -21,7 +21,7 @@ class ATM(commands.Cog):
         self.config.register_global(mining_reward=1000, mining_cooldown=86400)
 
 
-    @commands.hybrid_command(name="atm", aliases=["bank", "netatm"])
+    @commands.hybrid_command(name="atm", aliases=["netatm"])
     @commands.guild_only()
     async def atm(self, ctx: commands.Context):
         """Open the unified ATM terminal mainframe panel."""
