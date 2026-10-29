@@ -6,7 +6,7 @@ import random
 import time
 import asyncio
 import os
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from redbot.core import commands, Config, bank # pyright: ignore[reportMissingImports]
 from discord.ext import tasks # pyright: ignore[reportMissingImports]
 
@@ -422,6 +422,7 @@ class NetCount(commands.Cog):
             # Update channel variables inside lock
             ch_data["current_count"] = expected_number
             ch_data["last_counter_id"] = author.id
+            ch_data["last_message_id"] = message.id
             if expected_number > ch_data.get("high_score", 0):
                 ch_data["high_score"] = expected_number
                 
@@ -516,6 +517,7 @@ class NetCount(commands.Cog):
         streak = ch_data.get("current_count", 0)
         ch_data["current_count"] = 0
         ch_data["last_counter_id"] = None
+        ch_data["last_message_id"] = message.id
         
         # Track ruined count statistic
         ruined = await self.config.member(message.author).times_ruined()
@@ -1027,6 +1029,7 @@ class NetCount(commands.Cog):
                 return await ctx.send(f"⚠️ {target_channel.mention} is not an active sequence channel.")
             channels[ch_str]["current_count"] = count
             channels[ch_str]["last_counter_id"] = None
+            channels[ch_str]["last_message_id"] = ctx.message.id
             
         await ctx.send(f"🛠️ [SYS_OVERRIDE] BUFFER_REALIGNED in {target_channel.mention} to count **{count}**. Listening for **{count + 1}**.")
 
@@ -1197,6 +1200,93 @@ class NetCount(commands.Cog):
         
         await ctx.send(f"✅ **PARDON GRANTED:** {member.mention} has been released from shaming containment and survivor exile.")
 
+    async def get_messages_to_catchup(
+        self, channel: discord.TextChannel, ch_data: dict
+    ) -> Tuple[List[discord.Message], Optional[int]]:
+        """
+        Safely retrieve messages that were sent strictly AFTER the last recorded count,
+        preventing any old messages from previous streaks or resets from being processed.
+        """
+        current_count = ch_data.get("current_count", 0)
+        last_counter_id = ch_data.get("last_counter_id")
+        last_msg_id = ch_data.get("last_message_id")
+
+        # 1. Primary path: if last_message_id is known, fetch messages strictly after it
+        if last_msg_id:
+            try:
+                messages = [
+                    msg async for msg in channel.history(
+                        limit=100,
+                        after=discord.Object(id=int(last_msg_id)),
+                        oldest_first=True
+                    )
+                ]
+                return messages, int(last_msg_id)
+            except (discord.NotFound, discord.HTTPException):
+                pass  # Fall back to history scan below
+
+        # 2. Fallback path: scan the last 100 messages (newest first)
+        try:
+            raw_history = [msg async for msg in channel.history(limit=100, oldest_first=False)]
+        except Exception:
+            return [], None
+
+        if not raw_history:
+            return [], None
+
+        if current_count > 0:
+            target_idx = None
+            for idx, msg in enumerate(raw_history):
+                if msg.author.bot:
+                    continue
+                words = msg.content.split()
+                if not words:
+                    continue
+                parsed = evaluate_math(words[0])
+                if parsed == current_count:
+                    if last_counter_id is None or msg.author.id == last_counter_id:
+                        target_idx = idx
+                        break
+                    elif target_idx is None:
+                        target_idx = idx
+
+            if target_idx is not None:
+                resolved_id = raw_history[target_idx].id
+                return list(reversed(raw_history[:target_idx])), resolved_id
+            else:
+                # current_count was not found in the last 100 messages.
+                # Only process if the next expected number appears in recent window.
+                expected = current_count + 1
+                found_next = False
+                for msg in raw_history:
+                    if msg.author.bot:
+                        continue
+                    words = msg.content.split()
+                    if words and evaluate_math(words[0]) == expected:
+                        found_next = True
+                        break
+                if not found_next:
+                    return [], None
+                return list(reversed(raw_history)), None
+        else:
+            # current_count == 0: Streak only starts if someone sent 1
+            one_idx = None
+            for idx, msg in enumerate(raw_history):
+                if msg.author.bot:
+                    if any("GAME OVER" in (e.title or "") for e in msg.embeds):
+                        break
+                    continue
+                words = msg.content.split()
+                if not words:
+                    continue
+                parsed = evaluate_math(words[0])
+                if parsed == 1.0:
+                    one_idx = idx
+            if one_idx is not None:
+                resolved_id = raw_history[one_idx].id
+                return list(reversed(raw_history[:one_idx + 1])), resolved_id
+            return [], None
+
     @counting.command(name="recount", aliases=["catchup", "resync"])
     async def recount(self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None):
         """Force the bot to scan history and recount/catchup messages in the channel."""
@@ -1208,19 +1298,14 @@ class NetCount(commands.Cog):
         if ch_str not in channels:
             return await ctx.send(f"⚠️ {target_channel.mention} is not an active sequence channel.")
             
-        await ctx.send(f"🔄 **RECOUNT INITIATED:** Scanning last 100 messages in {target_channel.mention}...")
+        await ctx.send(f"🔄 **RECOUNT INITIATED:** Scanning recent history in {target_channel.mention}...")
         
         ch_data = channels[ch_str]
         try:
-            history = [msg async for msg in target_channel.history(limit=100, oldest_first=False)]
+            messages_to_process, resolved_last_msg_id = await self.get_messages_to_catchup(target_channel, ch_data)
         except Exception as e:
             return await ctx.send(f"❌ Failed to read channel history: {str(e)}")
             
-        if not history:
-            return await ctx.send("⚠️ No messages found in history.")
-            
-        history.reverse()
-        
         current_count = ch_data.get("current_count", 0)
         last_counter_id = ch_data.get("last_counter_id")
         survivor_channels = await self.config.guild(guild).survivor_channels()
@@ -1228,11 +1313,12 @@ class NetCount(commands.Cog):
         
         updated_count = current_count
         updated_last_counter = last_counter_id
+        updated_last_msg_id = resolved_last_msg_id
         failed = False
         fail_msg = None
         fail_reason = None
         
-        for msg in history:
+        for msg in messages_to_process:
             if msg.author.bot:
                 continue
                 
@@ -1244,9 +1330,8 @@ class NetCount(commands.Cog):
             if parsed is None:
                 continue
                 
-            if parsed <= updated_count:
-                continue
-            elif parsed == updated_count + 1:
+            expected_number = updated_count + 1
+            if parsed == expected_number:
                 if msg.author.id == updated_last_counter:
                     failed = True
                     fail_msg = msg
@@ -1254,6 +1339,7 @@ class NetCount(commands.Cog):
                     break
                 updated_count = parsed
                 updated_last_counter = msg.author.id
+                updated_last_msg_id = msg.id
                 
                 await self.safe_react(msg, "<:approved:1525751752987508737>", "✅")
                 if int(updated_count) % 100 == 0:
@@ -1282,13 +1368,14 @@ class NetCount(commands.Cog):
                 fail_msg = msg
                 display_count = int(parsed) if parsed.is_integer() else parsed
                 template = random.choice(self.WRONG_NUMBER_TEMPLATES)
-                fail_reason = template.format(expected=int(updated_count + 1), got=display_count)
+                fail_reason = template.format(expected=int(expected_number), got=display_count)
                 break
                 
         if failed:
             async with self.config.guild(guild).channels() as active_channels:
                 ch_data["current_count"] = 0
                 ch_data["last_counter_id"] = None
+                ch_data["last_message_id"] = fail_msg.id if fail_msg else None
                 if is_survivor:
                     ch_data["streak_id"] = str(random.randint(100000, 999999))
                     ch_data["contributors"] = []
@@ -1322,12 +1409,16 @@ class NetCount(commands.Cog):
                 async with self.config.guild(guild).channels() as active_channels:
                     active_channels[ch_str]["current_count"] = int(updated_count)
                     active_channels[ch_str]["last_counter_id"] = updated_last_counter
+                    active_channels[ch_str]["last_message_id"] = updated_last_msg_id
                     if updated_count > active_channels[ch_str].get("high_score", 0):
                         active_channels[ch_str]["high_score"] = int(updated_count)
                 
                 diff = int(updated_count - current_count)
                 await ctx.send(f"✅ **RECOUNT COMPLETE:** Caught up **{diff}** counts. Current Index is now **{int(updated_count)}**.")
             else:
+                if updated_last_msg_id and ch_data.get("last_message_id") != updated_last_msg_id:
+                    async with self.config.guild(guild).channels() as active_channels:
+                        active_channels[ch_str]["last_message_id"] = updated_last_msg_id
                 await ctx.send("ℹ️ **RECOUNT COMPLETE:** Database count is already fully synchronized with channel history. No new counts detected.")
 
     # --- LEADERBOARD & USER COMMANDS ---
@@ -2015,28 +2106,22 @@ class NetCount(commands.Cog):
                     continue
                     
                 try:
-                    # Read the last 100 messages
-                    history = [msg async for msg in channel.history(limit=100, oldest_first=False)]
+                    messages_to_process, resolved_last_msg_id = await self.get_messages_to_catchup(channel, ch_data)
                 except Exception:
                     continue
                     
-                if not history:
-                    continue
-                    
-                # Process from oldest to newest
-                history.reverse()
-                
                 current_count = ch_data.get("current_count", 0)
                 last_counter_id = ch_data.get("last_counter_id")
                 is_survivor = ch_id_str in survivor_channels
                 
                 updated_count = current_count
                 updated_last_counter = last_counter_id
+                updated_last_msg_id = resolved_last_msg_id
                 failed = False
                 fail_msg = None
                 fail_reason = None
                 
-                for msg in history:
+                for msg in messages_to_process:
                     if msg.author.bot:
                         continue
                         
@@ -2050,11 +2135,9 @@ class NetCount(commands.Cog):
                         # Non-number message (chatting in channel), completely ignore
                         continue
 
-                    # Ignore numbers that are at or below current count (already processed before offline)
-                    if parsed <= updated_count:
-                        continue
+                    expected_number = updated_count + 1
 
-                    if parsed == updated_count + 1:
+                    if parsed == expected_number:
                         # Next expected number!
                         if msg.author.id == updated_last_counter:
                             # Double count mistake
@@ -2065,6 +2148,7 @@ class NetCount(commands.Cog):
                         # Update state
                         updated_count = parsed
                         updated_last_counter = msg.author.id
+                        updated_last_msg_id = msg.id
                         
                         # Add visual reactions retroactively
                         await self.safe_react(msg, "<:approved:1525751752987508737>", "✅")
@@ -2093,12 +2177,11 @@ class NetCount(commands.Cog):
                                     contributors.append(msg.author.id)
                     else:
                         # Number skipped or wrong!
-                        # Only trigger failure if the message was actually sent AFTER the current count was recorded
                         failed = True
                         fail_msg = msg
                         display_count = int(parsed) if parsed.is_integer() else parsed
                         template = random.choice(self.WRONG_NUMBER_TEMPLATES)
-                        fail_reason = template.format(expected=int(updated_count + 1), got=display_count)
+                        fail_reason = template.format(expected=int(expected_number), got=display_count)
                         break
                         
                 if failed:
@@ -2106,6 +2189,7 @@ class NetCount(commands.Cog):
                         # Reset streak in DB
                         ch_data["current_count"] = 0
                         ch_data["last_counter_id"] = None
+                        ch_data["last_message_id"] = fail_msg.id if fail_msg else None
                         if is_survivor:
                             ch_data["streak_id"] = str(random.randint(100000, 999999))
                             ch_data["contributors"] = []
@@ -2139,6 +2223,7 @@ class NetCount(commands.Cog):
                         async with self.config.guild(guild).channels() as active_channels:
                             active_channels[ch_id_str]["current_count"] = int(updated_count)
                             active_channels[ch_id_str]["last_counter_id"] = updated_last_counter
+                            active_channels[ch_id_str]["last_message_id"] = updated_last_msg_id
                             if updated_count > active_channels[ch_id_str].get("high_score", 0):
                                 active_channels[ch_id_str]["high_score"] = int(updated_count)
                         
@@ -2153,3 +2238,6 @@ class NetCount(commands.Cog):
                             )
                         except Exception:
                             pass
+                    elif updated_last_msg_id and ch_data.get("last_message_id") != updated_last_msg_id:
+                        async with self.config.guild(guild).channels() as active_channels:
+                            active_channels[ch_id_str]["last_message_id"] = updated_last_msg_id

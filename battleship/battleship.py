@@ -798,7 +798,7 @@ class HackingBattleship(commands.Cog):
         embed = discord.Embed(
             title="🔥 ALL SERVERS DEPLOYED – BATTLE BEGINS",
             description=(
-                "All ships are in position. Both setups revealed!\n\n"
+                "All ships are in position and hidden (Fog of War)!\n\n"
                 f"**{turn_name}** goes first.\n"
                 "Select **Row** and **Column** from the dropdowns, then press **🔥 Launch Exploit**."
             ),
